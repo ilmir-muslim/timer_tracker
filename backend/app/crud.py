@@ -32,6 +32,14 @@ def create_project(db: Session, project: schemas.ProjectCreate):
     return db_project
 
 
+def create_task(db: Session, task: schemas.TaskCreate):
+    db_task = models.Task(title=task.title, project_id=task.project_id)
+    db.add(db_task)
+    db.commit()
+    db.refresh(db_task)
+    return db_task
+
+
 def get_tasks(db: Session, skip: int = 0, limit: int = 100):
     tasks = db.query(models.Task).offset(skip).limit(limit).all()
 
@@ -67,29 +75,31 @@ def start_timer(db: Session, task_id: int):
         timer.is_active = False
         timer.end_time = datetime.now()
 
-    db_time_entry = models.TimeEntry(task_id=task_id, start_time=datetime.now(), is_active=True)
+    db_time_entry = models.TimeEntry(
+        task_id=task_id, start_time=datetime.now(), is_active=True
+    )
     db.add(db_time_entry)
     db.commit()
     db.refresh(db_time_entry)
     return db_time_entry
 
-def pause_timer(db: Session, time_entry_id: int):
-    db_time_entry = db.query(models.TimeEntry).filter(models.TimeEntry.id == time_entry_id).first()
-    if db.time_entry and db_time_entry.is_active:
+
+def pause_timer(db: Session, task_id: int):
+    # Find active timer for this task
+    db_time_entry = (
+        db.query(models.TimeEntry)
+        .filter(models.TimeEntry.task_id == task_id, models.TimeEntry.is_active == True)
+        .first()
+    )
+
+    if db_time_entry:
         db_time_entry.is_active = False
         db_time_entry.end_time = datetime.now()
         db.commit()
         db.refresh(db_time_entry)
-    return db_time_entry
+        return db_time_entry
+    return None
 
-def stop_timer(db: Session, time_entry_id: int):
-    if db_time_entry and db_time_entry.is_active:
-        db_time_entry = db.query(models.TimeEntry).filter(models.TimeEntry.id == time_entry_id).first()
-        db_time_entry.is_active = False
-        db_time_entry.end_time = datetime.now()
-        db.commit()
-        db.refresh(db_time_entry)
-    return db_time_entry
 
-def get_time_enries(db: Session, skip: int = 0, limit: int = 100):
+def get_time_entries(db: Session, skip: int = 0, limit: int = 100):
     return db.query(models.TimeEntry).offset(skip).limit(limit).all()

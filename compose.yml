@@ -1,0 +1,55 @@
+services:
+  db:
+    image: mysql:8.0
+    container_name: task_tracker_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: task_tracker
+      MYSQL_USER: taskuser
+      MYSQL_PASSWORD: taskpass
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - app-network
+
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: mysql+pymysql://taskuser:taskpass@db:3306/task_tracker
+    depends_on:
+      - db
+    volumes:
+      - ./backend:/app
+    command: >
+      sh -c "pip install -r requirements.txt &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    networks:
+      - app-network
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "8080:8080"
+    environment:
+      VUE_APP_API_BASE_URL: http://localhost:8000
+      CHOKIDAR_USEPOLLING: "true"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    user: "node"
+    working_dir: /app
+    command: npm run serve -- --port 8080 --host 0.0.0.0
+    networks:
+      - app-network
+
+volumes:
+  mysql_data:
+
+networks:
+  app-network:
+    driver: bridge

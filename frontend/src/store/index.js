@@ -1,17 +1,17 @@
 import { createStore } from 'vuex'
 import axios from 'axios'
 
-const API_BASE_URL = 'http://localhost:8000'
+const API_BASE_URL = process.env.VUE_APP_API_BASE_URL || 'http://localhost:8000'
 
 export default createStore({
     state: {
-        project: [],
+        projects: [],
         tasks: [],
         timeEntries: []
     },
     mutations: {
         SET_PROJECTS(state, projects) {
-            state.project = projects
+            state.projects = projects
         },
         SET_TASKS(state, tasks) {
             state.tasks = tasks
@@ -20,10 +20,10 @@ export default createStore({
             state.timeEntries = timeEntries
         },
         ADD_PROJECT(state, project) {
-            state.project.push(project)
+            state.projects.push(project)
         },
-        ADD_TASK(state, tasks) {
-            state.tasks.push(tasks)
+        ADD_TASK(state, task) {
+            state.tasks.push(task)
         }
     },
     actions: {
@@ -32,7 +32,8 @@ export default createStore({
                 const response = await axios.get(`${API_BASE_URL}/projects/`)
                 commit('SET_PROJECTS', response.data)
             } catch (error) {
-                console.error('Error fetching projects:', error)
+                console.error('Ошибка загрузки проектов:', error)
+                throw error
             }
         },
         async createProject({ commit }, projectData) {
@@ -41,16 +42,19 @@ export default createStore({
                 commit('ADD_PROJECT', response.data)
                 return response.data
             } catch (error) {
-                console.error('Error creating project:', error)
+                console.error('Ошибка создания проекта:', error)
                 throw error
             }
         },
         async fetchTasks({ commit }) {
             try {
+                console.log('Загрузка задач из:', `${API_BASE_URL}/tasks/`)
                 const response = await axios.get(`${API_BASE_URL}/tasks/`)
+                console.log('Ответ задач:', response.data)
                 commit('SET_TASKS', response.data)
             } catch (error) {
-                console.error('Error fetching tasks:', error)
+                console.error('Ошибка загрузки задач:', error)
+                throw error
             }
         },
         async createTask({ commit }, taskData) {
@@ -59,34 +63,26 @@ export default createStore({
                 commit('ADD_TASK', response.data)
                 return response.data
             } catch (error) {
-                console.error('Error creating task:', error)
+                console.error('Ошибка создания задачи:', error)
                 throw error
             }
         },
+
         async startTimer({ dispatch }, taskId) {
             try {
                 await axios.post(`${API_BASE_URL}/timer/start/${taskId}`)
-                dispatch('fetchTasks') // Refresh tasks to get updated timer status
+                await dispatch('fetchTasks') // Refresh tasks to get updated timer status
             } catch (error) {
                 console.error('Error starting timer:', error)
                 throw error
             }
         },
-        async pauseTimer({ dispatch }, timeEntryId) {
+        async pauseTimer({ dispatch }, taskId) {
             try {
-                await axios.post(`${API_BASE_URL}/timer/pause/${timeEntryId}`)
-                dispatch('fetchTasks') // Refresh tasks to get updated timer status
+                await axios.post(`${API_BASE_URL}/timer/pause/${taskId}`)
+                await dispatch('fetchTasks')
             } catch (error) {
                 console.error('Error pausing timer:', error)
-                throw error
-            }
-        },
-        async stopTimer({ dispatch }, timeEntryId) {
-            try {
-                await axios.post(`${API_BASE_URL}/timer/stop/${timeEntryId}`)
-                dispatch('fetchTasks') // Refresh tasks to get updated timer status
-            } catch (error) {
-                console.error('Error stopping timer:', error)
                 throw error
             }
         }
