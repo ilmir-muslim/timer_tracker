@@ -101,5 +101,30 @@ def pause_timer(db: Session, task_id: int):
     return None
 
 
+# Добавить в конец файла
+def delete_project(db: Session, project_id: int):
+    db_project = (
+        db.query(models.Project).filter(models.Project.id == project_id).first()
+    )
+    if db_project:
+        # Сначала удаляем связанные задачи
+        db.query(models.Task).filter(models.Task.project_id == project_id).delete()
+        db.delete(db_project)
+        db.commit()
+        return True
+    return False
+
+
+def delete_task(db: Session, task_id: int):
+    db_task = db.query(models.Task).filter(models.Task.id == task_id).first()
+    if db_task:
+        # Удаляем связанные time_entries
+        db.query(models.TimeEntry).filter(models.TimeEntry.task_id == task_id).delete()
+        db.delete(db_task)
+        db.commit()
+        return True
+    return False
+
+
 def get_time_entries(db: Session, skip: int = 0, limit: int = 100):
     return db.query(models.TimeEntry).offset(skip).limit(limit).all()

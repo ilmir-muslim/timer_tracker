@@ -3,13 +3,18 @@
 
         <div class="header-section">
             <div class="header-top">
-                <button @click="$router.push('/')" class="btn back-btn">← Назад к проектам</button>
+                <div class="left-actions">
+                    <button @click="$router.push('/')" class="btn back-btn">← Назад к проектам</button>
+                </div>
                 <div class="header-actions">
                     <button @click="exportToTxt" class="btn btn-export">
                         <span class="btn-icon">📄</span> Экспорт TXT
                     </button>
                     <button @click="copyToClipboard" class="btn btn-copy">
                         <span class="btn-icon">📋</span> Копировать отчет
+                    </button>
+                    <button @click="deleteProjectHandler" class="btn btn-danger">
+                        <span class="btn-icon">🗑️</span> Удалить проект
                     </button>
                 </div>
             </div>
@@ -73,6 +78,12 @@
                                 <span class="pulse"></span>
                                 Таймер запущен...
                             </div>
+
+                            <div class="task-actions">
+                                <button @click="deleteTaskHandler(task.id)" class="btn btn-danger btn-sm">
+                                    <span class="btn-icon">🗑️</span>
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -121,7 +132,7 @@ export default {
         }
     },
     methods: {
-        ...mapActions(['fetchProjects', 'fetchTasks', 'startTimer', 'pauseTimer', 'createTask']),
+        ...mapActions(['fetchProjects', 'fetchTasks', 'startTimer', 'pauseTimer', 'createTask', 'deleteProject', 'deleteTask']),
         async addTask() {
             if (this.newTaskTitle.trim()) {
                 try {
@@ -220,6 +231,37 @@ export default {
                     this.$toast.error('Не удалось скопировать в буфер обмена')
                 }
             }
+        },
+        async deleteProjectHandler() {
+            if (confirm('Вы уверены, что хотите удалить проект? Все задачи будут удалены.')) {
+                try {
+                    await this.deleteProject(this.projectId)
+                    if (this.$toast) {
+                        this.$toast.success('Проект удален')
+                    }
+                    this.$router.push('/')
+                } catch (error) {
+                    console.error('Ошибка удаления проекта:', error)
+                    if (this.$toast) {
+                        this.$toast.error('Не удалось удалить проект')
+                    }
+                }
+            }
+        },
+        async deleteTaskHandler(taskId) {
+            if (confirm('Вы уверены, что хотите удалить задачу?')) {
+                try {
+                    await this.deleteTask(taskId)
+                    if (this.$toast) {
+                        this.$toast.success('Задача удалена')
+                    }
+                } catch (error) {
+                    console.error('Ошибка удаления задачи:', error)
+                    if (this.$toast) {
+                        this.$toast.error('Не удалось удалить задачу')
+                    }
+                }
+            }
         }
     },
     async mounted() {
@@ -241,7 +283,9 @@ export default {
             }, 1000)
         } catch (error) {
             console.error('Ошибка загрузки деталей проекта:', error)
-            this.$toast.error('Не удалось загрузить детали проекта')
+            if (this.$toast) {
+                this.$toast.error('Не удалось загрузить детали проекта')
+            }
         } finally {
             this.loading = false
         }
@@ -255,6 +299,7 @@ export default {
 </script>
 
 <style scoped>
+/* Стили остаются без изменений */
 .project-detail {
     max-width: 900px;
     margin: 0 auto;
@@ -272,6 +317,11 @@ export default {
     margin-bottom: 1.5rem;
     flex-wrap: wrap;
     gap: 1rem;
+}
+
+.left-actions {
+    display: flex;
+    align-items: center;
 }
 
 .header-actions {
@@ -305,13 +355,11 @@ export default {
 }
 
 .back-btn {
-    margin-bottom: 1.5rem;
     background-color: #6c757d;
     color: white;
     padding: 12px 24px;
     font-size: 18px;
     border-radius: 8px;
-    align-self: flex-start;
 }
 
 .back-btn:hover {
@@ -335,6 +383,20 @@ export default {
 
 .btn-copy:hover {
     background-color: #5a2d9c;
+}
+
+.btn-danger {
+    background-color: #dc3545;
+    color: white;
+}
+
+.btn-danger:hover {
+    background-color: #c82333;
+}
+
+.btn-sm {
+    padding: 8px 12px;
+    font-size: 14px;
 }
 
 .header-section h2 {
@@ -471,6 +533,11 @@ export default {
 .timer-controls {
     display: flex;
     gap: 0.8rem;
+}
+
+.task-actions {
+    display: flex;
+    gap: 0.5rem;
 }
 
 .btn {

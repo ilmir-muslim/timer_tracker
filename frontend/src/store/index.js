@@ -85,6 +85,24 @@ export default createStore({
                 console.error('Error pausing timer:', error)
                 throw error
             }
+        },
+        async deleteProject({ commit }, projectId) {
+            try {
+                await axios.delete(`${API_BASE_URL}/projects/${projectId}`)
+                commit('SET_PROJECTS', this.state.projects.filter(p => p.id !== projectId))
+            } catch (error) {
+                console.error('Ошибка удаления проекта:', error)
+                throw error
+            }
+        },
+        async deleteTask({ commit }, taskId) {
+            try {
+                await axios.delete(`${API_BASE_URL}/tasks/${taskId}`)
+                commit('SET_TASKS', this.state.tasks.filter(t => t.id !== taskId))
+            } catch (error) {
+                console.error('Ошибка удаления задачи:', error)
+                throw error
+            }
         }
     },
     getters: {
