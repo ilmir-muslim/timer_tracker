@@ -24,3 +24,4 @@ pnpm-debug.log*
 node_modules
 
 venv/
+__pycache__/
