@@ -1,10 +1,30 @@
 from sqlalchemy.orm import Session
 from datetime import datetime
 from . import models, schemas
+from .auth import get_password_hash
 
 
-def get_projects(db: Session, skip: int = 0, limit: int = 100):
-    projects = db.query(models.Project).offset(skip).limit(limit).all()
+def get_user_by_username(db: Session, username: str):
+    return db.query(models.User).filter(models.User.username == username).first()
+
+
+def create_user(db: Session, user: schemas.UserCreate):
+    hashed_password = get_password_hash(user.password)
+    db_user = models.User(username=user.username, password=hashed_password)
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
+    return db_user
+
+
+def get_projects_by_owner(db: Session, owner_id: int, skip: int = 0, limit: int = 100):
+    projects = (
+        db.query(models.Project)
+        .filter(models.Project.owner_id == owner_id)
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
 
     for project in projects:
         total_seconds = 0
@@ -24,24 +44,32 @@ def get_projects(db: Session, skip: int = 0, limit: int = 100):
     return projects
 
 
-def create_project(db: Session, project: schemas.ProjectCreate):
-    db_project = models.Project(name=project.name)
+def create_project(db: Session, project: schemas.ProjectCreate, owner_id: int):
+    db_project = models.Project(name=project.name, owner_id=owner_id)
     db.add(db_project)
     db.commit()
     db.refresh(db_project)
     return db_project
 
 
-def create_task(db: Session, task: schemas.TaskCreate):
-    db_task = models.Task(title=task.title, project_id=task.project_id)
+def create_task(db: Session, task: schemas.TaskCreate, user_id: int):
+    db_task = models.Task(
+        title=task.title, project_id=task.project_id, owner_id=user_id
+    )
     db.add(db_task)
     db.commit()
     db.refresh(db_task)
     return db_task
 
 
-def get_tasks(db: Session, skip: int = 0, limit: int = 100):
-    tasks = db.query(models.Task).offset(skip).limit(limit).all()
+def get_tasks_by_owner(db: Session, owner_id: int, skip: int = 0, limit: int = 100):
+    tasks = (
+        db.query(models.Task)
+        .filter(models.Task.owner_id == owner_id)
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
 
     for task in tasks:
         total_seconds = 0
@@ -101,7 +129,19 @@ def pause_timer(db: Session, task_id: int):
     return None
 
 
-# Добавить в конец файла
+def get_time_entries_by_owner(
+    db: Session, owner_id: int, skip: int = 0, limit: int = 100
+):
+    return (
+        db.query(models.TimeEntry)
+        .join(models.Task)
+        .filter(models.Task.owner_id == owner_id)
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+
+
 def delete_project(db: Session, project_id: int):
     db_project = (
         db.query(models.Project).filter(models.Project.id == project_id).first()
@@ -124,7 +164,3 @@ def delete_task(db: Session, task_id: int):
         db.commit()
         return True
     return False
-
-
-def get_time_entries(db: Session, skip: int = 0, limit: int = 100):
-    return db.query(models.TimeEntry).offset(skip).limit(limit).all()

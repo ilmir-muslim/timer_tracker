@@ -4,6 +4,13 @@
       <div class="container">
         <h1>⏱️ Учёт времени </h1>
         <p>Эффективно отслеживайте время ваших проектов</p>
+        <nav v-if="$store.getters.isAuthenticated" class="nav">
+          <button @click="handleLogout" class="btn btn-logout">Выйти</button>
+        </nav>
+        <nav v-else class="nav">
+          <router-link to="/login" class="nav-link">Войти</router-link>
+          <router-link to="/register" class="nav-link">Регистрация</router-link>
+        </nav>
       </div>
     </header>
     <main class="app-main">
@@ -20,8 +27,17 @@
 </template>
 
 <script>
+import { mapActions } from 'vuex'
+
 export default {
-  name: 'App'
+  name: 'App',
+  methods: {
+    ...mapActions(['logout']),
+    async handleLogout() {
+      await this.logout()
+      this.$router.push('/login')
+    }
+  }
 }
 </script>
 
@@ -50,7 +66,7 @@ body {
 .app-header {
   background: linear-gradient(135deg, #6a11cb 0%, #2575fc 100%);
   color: white;
-  padding: 2rem 0;
+  padding: 1rem 0;
   text-align: center;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
 }
@@ -163,5 +179,38 @@ textarea.form-control {
   font-size: 18px;
   min-height: 120px;
   /* Делаем текстовые области больше */
+}
+
+.nav {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+}
+
+.nav-link {
+  color: white;
+  text-decoration: none;
+  margin-left: 15px;
+  padding: 5px 10px;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+
+.nav-link:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.btn-logout {
+  background-color: transparent;
+  border: 1px solid white;
+  color: white;
+  padding: 5px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.btn-logout:hover {
+  background-color: rgba(255, 255, 255, 0.1);
 }
 </style>

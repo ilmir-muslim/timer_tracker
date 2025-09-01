@@ -10,6 +10,20 @@ export default createStore({
         timeEntries: []
     },
     mutations: {
+        SET_TOKEN(state, token) {
+            state.token = token
+            localStorage.setItem('token', token)
+            // Устанавливаем токен по умолчанию для всех запросов
+            axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
+        },
+        CLEAR_TOKEN(state) {
+            state.token = ''
+            localStorage.removeItem('token')
+            delete axios.defaults.headers.common['Authorization']
+        },
+        SET_USER(state, user) {
+            state.user = user
+        },
         SET_PROJECTS(state, projects) {
             state.projects = projects
         },
@@ -26,7 +40,31 @@ export default createStore({
             state.tasks.push(task)
         }
     },
+
     actions: {
+        async login({ commit }, credentials) {
+            try {
+                const response = await axios.post(`${API_BASE_URL}/login`, credentials)
+                commit('SET_TOKEN', response.data.access_token)
+                return response.data
+            } catch (error) {
+                console.error('Ошибка входа:', error)
+                throw error
+            }
+        },
+        async register(_, userData) { 
+            try {
+                const response = await axios.post(`${API_BASE_URL}/register`, userData)
+                return response.data
+            } catch (error) {
+                console.error('Ошибка регистрации:', error)
+                throw error
+            }
+        },
+        async logout({ commit }) {
+            commit('CLEAR_TOKEN')
+            commit('SET_USER', null)
+        },
         async fetchProjects({ commit }) {
             try {
                 const response = await axios.get(`${API_BASE_URL}/projects/`)
@@ -106,6 +144,7 @@ export default createStore({
         }
     },
     getters: {
+        isAuthenticated: state => !!state.token,
         getTasksByProjectId: (state) => (projectId) => {
             return state.tasks.filter(task => task.project_id === projectId)
         },
