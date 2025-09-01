@@ -10,7 +10,7 @@ from passlib.context import CryptContext
 
 models.Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="Task Tracker API")
+app = FastAPI(title="Task Tracker API", root_path="/api")
 
 app.add_middleware(
     CORSMiddleware,
