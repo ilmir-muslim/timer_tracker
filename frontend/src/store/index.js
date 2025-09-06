@@ -1,10 +1,13 @@
 import { createStore } from 'vuex'
 import axios from 'axios'
+import Cookies from 'js-cookie'
 
 const API_BASE_URL = process.env.VUE_APP_API_BASE_URL || 'http://localhost:8000'
 
 export default createStore({
     state: {
+        token: localStorage.getItem('token') || Cookies.get('token') || '',
+        user: null,
         projects: [],
         tasks: [],
         timeEntries: []
@@ -12,13 +15,15 @@ export default createStore({
     mutations: {
         SET_TOKEN(state, token) {
             state.token = token
+            // Сохраняем токен в localStorage и куки для совместимости
             localStorage.setItem('token', token)
-            // Устанавливаем токен по умолчанию для всех запросов
+            Cookies.set('token', token, { expires: 30, path: '/' })
             axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
         },
         CLEAR_TOKEN(state) {
             state.token = ''
             localStorage.removeItem('token')
+            Cookies.remove('token', { path: '/' })
             delete axios.defaults.headers.common['Authorization']
         },
         SET_USER(state, user) {
@@ -52,7 +57,7 @@ export default createStore({
                 throw error
             }
         },
-        async register(_, userData) { 
+        async register(_, userData) {
             try {
                 const response = await axios.post(`${API_BASE_URL}/register`, userData)
                 return response.data

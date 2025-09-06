@@ -9,6 +9,12 @@
                 <div class="form-group">
                     <input v-model="password" type="password" placeholder="Пароль" required>
                 </div>
+                <div class="remember-me">
+                    <label>
+                        <input type="checkbox" v-model="rememberMe">
+                        Запомнить меня
+                    </label>
+                </div>
                 <button type="submit" :disabled="loading">Войти</button>
                 <p class="register-link">
                     Нет аккаунта? <a href="#" @click.prevent="$router.push('/register')">Зарегистрироваться</a>
@@ -21,13 +27,15 @@
 
 <script>
 import { mapActions } from 'vuex'
+import Cookies from 'js-cookie'
 
 export default {
     name: 'UserLogin',
     data() {
         return {
-            username: '',
+            username: Cookies.get('rememberedUsername') || '',
             password: '',
+            rememberMe: !!Cookies.get('rememberedUsername'),
             loading: false,
             error: ''
         }
@@ -43,6 +51,14 @@ export default {
                     username: this.username,
                     password: this.password
                 })
+
+                // Сохраняем логин в куки если выбрано "Запомнить меня"
+                if (this.rememberMe) {
+                    Cookies.set('rememberedUsername', this.username, { expires: 30, path: '/' })
+                } else {
+                    Cookies.remove('rememberedUsername', { path: '/' })
+                }
+
                 this.$router.push('/')
             } catch (error) {
                 this.error = 'Неверное имя пользователя или пароль'
@@ -88,6 +104,24 @@ export default {
     border: 1px solid #ced4da;
     border-radius: 4px;
     font-size: 1rem;
+}
+
+.remember-me {
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+}
+
+.remember-me label {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    font-size: 0.9rem;
+    color: #6c757d;
+}
+
+.remember-me input {
+    margin-right: 8px;
 }
 
 button {
