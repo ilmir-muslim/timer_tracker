@@ -43,6 +43,19 @@ export default createStore({
         },
         ADD_TASK(state, task) {
             state.tasks.push(task)
+        },
+        UPDATE_TASK(state, updatedTask) {
+            const index = state.tasks.findIndex(t => t.id === updatedTask.id)
+            if (index !== -1) {
+                state.tasks.splice(index, 1, updatedTask)
+            }
+        },
+
+        UPDATE_PROJECT(state, updatedProject) {
+            const index = state.projects.findIndex(p => p.id === updatedProject.id)
+            if (index !== -1) {
+                state.projects.splice(index, 1, updatedProject)
+            }
         }
     },
 
@@ -144,6 +157,27 @@ export default createStore({
                 commit('SET_TASKS', this.state.tasks.filter(t => t.id !== taskId))
             } catch (error) {
                 console.error('Ошибка удаления задачи:', error)
+                throw error
+            }
+        },
+        async updateTask({ commit }, { taskId, taskData }) {
+            try {
+                const response = await axios.put(`${API_BASE_URL}/tasks/${taskId}`, taskData)
+                commit('UPDATE_TASK', response.data)
+                return response.data
+            } catch (error) {
+                console.error('Ошибка обновления задачи:', error)
+                throw error
+            }
+        },
+
+        async updateProject({ commit }, { projectId, projectData }) {
+            try {
+                const response = await axios.put(`${API_BASE_URL}/projects/${projectId}`, projectData)
+                commit('UPDATE_PROJECT', response.data)
+                return response.data
+            } catch (error) {
+                console.error('Ошибка обновления проекта:', error)
                 throw error
             }
         }

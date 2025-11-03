@@ -4,36 +4,22 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from jose import JWTError, jwt
 from datetime import datetime, timedelta
+from contextlib import asynccontextmanager
+
+from app.auth import verify_password
 from . import crud, models, schemas
 from .database import SessionLocal, engine
-from passlib.context import CryptContext
 
+# Создаем таблицы
 models.Base.metadata.create_all(bind=engine)
-
-app = FastAPI(title="Task Tracker API", root_path="/api")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 # Настройки аутентификации
 SECRET_KEY = "simple-secret-key-for-development-change-in-production"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 24 * 60  # 24 часа
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-
-def verify_password(plain_password, hashed_password):
-    return pwd_context.verify(plain_password, hashed_password)
-
-
-def get_password_hash(password):
-    return pwd_context.hash(password)
+# Глобальная переменная для планировщика
+scheduler = None
 
 
 def create_access_token(data: dict):
@@ -72,6 +58,65 @@ def get_current_user(
     if user is None:
         raise credentials_exception
     return user
+
+
+# Функция для автоматической остановки старых таймеров
+def auto_pause_old_timers():
+    with SessionLocal() as db:
+        try:
+            paused_count = crud.auto_pause_old_timers(db)
+            if paused_count > 0:
+                print(f"Автоматически остановлено {paused_count} старых таймеров")
+        except Exception as e:
+            print(f"Ошибка при автоматической остановке таймеров: {e}")
+
+
+# Lifespan контекст для управления жизненным циклом приложения
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup логика
+    print("Запуск приложения...")
+
+    # Инициализация планировщика
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from apscheduler.triggers.interval import IntervalTrigger
+
+    global scheduler
+    scheduler = BackgroundScheduler()
+
+    # Проверяем старые таймеры каждые 30 минут
+    scheduler.add_job(
+        auto_pause_old_timers,
+        trigger=IntervalTrigger(minutes=30),
+        id="auto_pause_timers",
+        replace_existing=True,
+    )
+
+    scheduler.start()
+    print("Планировщик запущен")
+
+    yield  # Здесь приложение работает
+
+    # Shutdown логика
+    print("Остановка приложения...")
+    if scheduler and scheduler.running:
+        scheduler.shutdown()
+        print("Планировщик остановлен")
+
+
+app = FastAPI(
+    title="Task Tracker API",
+    root_path="/api",
+    lifespan=lifespan,  # Используем lifespan вместо устаревших событий
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.post("/register", response_model=schemas.User)
@@ -117,6 +162,44 @@ def read_projects(
     )
 
 
+@app.put("/projects/{project_id}", response_model=schemas.Project)
+def update_project(
+    project_id: int,
+    project_update: schemas.ProjectUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    # Проверяем, что проект принадлежит текущему пользователю
+    project = db.query(models.Project).filter(models.Project.id == project_id).first()
+    if not project or project.owner_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    updated_project = crud.update_project(
+        db=db, project_id=project_id, project_update=project_update
+    )
+    if not updated_project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    return updated_project
+
+
+@app.delete("/projects/{project_id}")
+def delete_project(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    # Проверяем, что проект принадлежит текущему пользователю
+    project = db.query(models.Project).filter(models.Project.id == project_id).first()
+    if not project or project.owner_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    success = crud.delete_project(db, project_id=project_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return {"message": "Project deleted"}
+
+
 @app.post("/tasks/", response_model=schemas.Task)
 def create_task(
     task: schemas.TaskCreate,
@@ -143,6 +226,52 @@ def read_tasks(
     return crud.get_tasks_by_owner(
         db=db, owner_id=current_user.id, skip=skip, limit=limit
     )
+
+
+@app.put("/tasks/{task_id}", response_model=schemas.Task)
+def update_task(
+    task_id: int,
+    task_update: schemas.TaskUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    # Проверяем, что задача принадлежит текущему пользователю
+    task = db.query(models.Task).filter(models.Task.id == task_id).first()
+    if not task or task.owner_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    # Если меняется project_id, проверяем что новый проект принадлежит пользователю
+    if task_update.project_id and task_update.project_id != task.project_id:
+        new_project = (
+            db.query(models.Project)
+            .filter(models.Project.id == task_update.project_id)
+            .first()
+        )
+        if not new_project or new_project.owner_id != current_user.id:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+    updated_task = crud.update_task(db=db, task_id=task_id, task_update=task_update)
+    if not updated_task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    return updated_task
+
+
+@app.delete("/tasks/{task_id}")
+def delete_task(
+    task_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    # Проверяем, что задача принадлежит текущему пользователю
+    task = db.query(models.Task).filter(models.Task.id == task_id).first()
+    if not task or task.owner_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    success = crud.delete_task(db, task_id=task_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return {"message": "Task deleted"}
 
 
 @app.post("/timer/start/{task_id}")
@@ -180,51 +309,28 @@ def pause_timer(
         )
 
 
-@app.get("/time_entries/", response_model=List[schemas.TimeEntry])
-def read_time_entries(
-    skip: int = 0,
-    limit: int = 100,
+# Endpoint для принудительной остановки всех таймеров пользователя
+@app.post("/timer/stop-all")
+def stop_all_timers(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    time_entries = crud.get_time_entries_by_owner(
-        db, owner_id=current_user.id, skip=skip, limit=limit
+    # Находим все активные задачи пользователя
+    active_tasks = (
+        db.query(models.Task)
+        .filter(
+            models.Task.owner_id == current_user.id,
+            models.Task.is_timer_running == True,
+        )
+        .all()
     )
-    return time_entries
 
+    stopped_count = 0
+    for task in active_tasks:
+        if crud.pause_timer(db=db, task_id=task.id):
+            stopped_count += 1
 
-@app.delete("/projects/{project_id}")
-def delete_project(
-    project_id: int,
-    db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
-):
-    # Проверяем, что проект принадлежит текущему пользователю
-    project = db.query(models.Project).filter(models.Project.id == project_id).first()
-    if not project or project.owner_id != current_user.id:
-        raise HTTPException(status_code=404, detail="Project not found")
-
-    success = crud.delete_project(db, project_id=project_id)
-    if not success:
-        raise HTTPException(status_code=404, detail="Project not found")
-    return {"message": "Project deleted"}
-
-
-@app.delete("/tasks/{task_id}")
-def delete_task(
-    task_id: int,
-    db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
-):
-    # Проверяем, что задача принадлежит текущему пользователю
-    task = db.query(models.Task).filter(models.Task.id == task_id).first()
-    if not task or task.owner_id != current_user.id:
-        raise HTTPException(status_code=404, detail="Task not found")
-
-    success = crud.delete_task(db, task_id=task_id)
-    if not success:
-        raise HTTPException(status_code=404, detail="Task not found")
-    return {"message": "Task deleted"}
+    return {"message": f"Остановлено {stopped_count} таймеров"}
 
 
 if __name__ == "__main__":

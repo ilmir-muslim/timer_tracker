@@ -13,6 +13,9 @@
                     <button @click="copyToClipboard" class="btn btn-copy">
                         <span class="btn-icon">📋</span> Копировать отчет
                     </button>
+                    <button @click="stopAllTimers" class="btn btn-warning" v-if="hasActiveTimers">
+                        <span class="btn-icon">⏹️</span> Остановить все таймеры
+                    </button>
                     <button @click="deleteProjectHandler" class="btn btn-danger">
                         <span class="btn-icon">🗑️</span> Удалить проект
                     </button>
@@ -53,6 +56,9 @@
         <div v-else>
             <div class="tasks-header">
                 <h3>Задачи ({{ projectTasks.length }})</h3>
+                <div class="tasks-summary">
+                    Активных таймеров: {{ activeTimersCount }}
+                </div>
             </div>
             <div class="tasks-list">
                 <div v-for="task in projectTasks" :key="task.id" class="task-item card"
@@ -80,12 +86,50 @@
                             </div>
 
                             <div class="task-actions">
+                                <button @click="openEditModal(task)" class="btn btn-edit btn-sm">
+                                    <span class="btn-icon">✏️</span>
+                                </button>
                                 <button @click="deleteTaskHandler(task.id)" class="btn btn-danger btn-sm">
                                     <span class="btn-icon">🗑️</span>
                                 </button>
                             </div>
                         </div>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Модальное окно редактирования задачи -->
+        <div v-if="editingTask" class="modal-overlay" @click="closeEditModal">
+            <div class="modal-content" @click.stop>
+                <h3>Редактировать задачу</h3>
+
+                <div class="form-group">
+                    <label>Название задачи:</label>
+                    <textarea v-model="editingTask.title" class="form-control" rows="3"></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label>Время (часы:минуты:секунды):</label>
+                    <div class="time-inputs">
+                        <input v-model.number="editHours" type="number" min="0" placeholder="ч" class="time-input">
+                        <span>:</span>
+                        <input v-model.number="editMinutes" type="number" min="0" max="59" placeholder="м"
+                            class="time-input">
+                        <span>:</span>
+                        <input v-model.number="editSeconds" type="number" min="0" max="59" placeholder="с"
+                            class="time-input">
+                    </div>
+                    <div class="time-summary">
+                        Всего секунд: {{ totalEditSeconds }} ({{ formatTime(totalEditSeconds) }})
+                    </div>
+                </div>
+
+                <div class="modal-actions">
+                    <button @click="saveTaskEdit" class="btn btn-primary" :disabled="!editingTask.title.trim()">
+                        Сохранить
+                    </button>
+                    <button @click="closeEditModal" class="btn btn-secondary">Отмена</button>
                 </div>
             </div>
         </div>
@@ -104,7 +148,11 @@ export default {
             updateInterval: null,
             loading: true,
             debugMode: false,
-            localTotalTime: 0
+            localTotalTime: 0,
+            editingTask: null,
+            editHours: 0,
+            editMinutes: 0,
+            editSeconds: 0
         }
     },
     computed: {
@@ -115,6 +163,15 @@ export default {
         },
         projectTasks() {
             return this.getTasksByProjectId(this.projectId)
+        },
+        activeTimersCount() {
+            return this.projectTasks.filter(task => task.is_timer_running).length
+        },
+        hasActiveTimers() {
+            return this.activeTimersCount > 0
+        },
+        totalEditSeconds() {
+            return this.editHours * 3600 + this.editMinutes * 60 + this.editSeconds
         }
     },
     watch: {
@@ -132,7 +189,16 @@ export default {
         }
     },
     methods: {
-        ...mapActions(['fetchProjects', 'fetchTasks', 'startTimer', 'pauseTimer', 'createTask', 'deleteProject', 'deleteTask']),
+        ...mapActions([
+            'fetchProjects',
+            'fetchTasks',
+            'startTimer',
+            'pauseTimer',
+            'createTask',
+            'deleteProject',
+            'deleteTask',
+            'updateTask'
+        ]),
         async addTask() {
             if (this.newTaskTitle.trim()) {
                 try {
@@ -182,6 +248,28 @@ export default {
                 console.error('Ошибка остановки таймера:', error)
                 if (this.$toast) {
                     this.$toast.error('Не удалось остановить таймер')
+                }
+            }
+        },
+        async stopAllTimers() {
+            if (this.activeTimersCount === 0) return
+
+            if (confirm(`Остановить все активные таймеры (${this.activeTimersCount})?`)) {
+                try {
+                    // Останавливаем каждый активный таймер
+                    const activeTasks = this.projectTasks.filter(task => task.is_timer_running)
+                    for (const task of activeTasks) {
+                        await this.pauseTimer(task.id)
+                    }
+
+                    if (this.$toast) {
+                        this.$toast.success(`Остановлено ${this.activeTimersCount} таймеров`)
+                    }
+                } catch (error) {
+                    console.error('Ошибка остановки таймеров:', error)
+                    if (this.$toast) {
+                        this.$toast.error('Не удалось остановить таймеры')
+                    }
                 }
             }
         },
@@ -262,6 +350,45 @@ export default {
                     }
                 }
             }
+        },
+        openEditModal(task) {
+            this.editingTask = { ...task }
+            // Конвертируем секунды в часы, минуты, секунды
+            const totalSeconds = task.total_time || 0
+            this.editHours = Math.floor(totalSeconds / 3600)
+            this.editMinutes = Math.floor((totalSeconds % 3600) / 60)
+            this.editSeconds = Math.floor(totalSeconds % 60)
+        },
+        closeEditModal() {
+            this.editingTask = null
+            this.editHours = 0
+            this.editMinutes = 0
+            this.editSeconds = 0
+        },
+        async saveTaskEdit() {
+            if (!this.editingTask) return
+
+            try {
+                await this.updateTask({
+                    taskId: this.editingTask.id,
+                    taskData: {
+                        title: this.editingTask.title,
+                        total_time: this.totalEditSeconds
+                    }
+                })
+
+                if (this.$toast) {
+                    this.$toast.success('Задача успешно обновлена!')
+                }
+
+                this.closeEditModal()
+                await this.fetchTasks() // Обновляем список задач
+            } catch (error) {
+                console.error('Ошибка обновления задачи:', error)
+                if (this.$toast) {
+                    this.$toast.error('Не удалось обновить задачу')
+                }
+            }
         }
     },
     async mounted() {
@@ -275,6 +402,7 @@ export default {
             console.log('Задачи:', this.tasks)
             console.log('Задачи проекта:', this.projectTasks)
 
+            // Обновляем задачи каждую секунду, если есть активные таймеры
             this.updateInterval = setInterval(async () => {
                 const activeTasks = this.projectTasks.filter(task => task.is_timer_running)
                 if (activeTasks.length > 0) {
@@ -299,7 +427,6 @@ export default {
 </script>
 
 <style scoped>
-/* Стили остаются без изменений */
 .project-detail {
     max-width: 900px;
     margin: 0 auto;
@@ -394,6 +521,15 @@ export default {
     background-color: #c82333;
 }
 
+.btn-warning {
+    background-color: #ffc107;
+    color: #212529;
+}
+
+.btn-warning:hover {
+    background-color: #e0a800;
+}
+
 .btn-sm {
     padding: 8px 12px;
     font-size: 14px;
@@ -464,13 +600,28 @@ export default {
 }
 
 .tasks-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
     margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+    gap: 1rem;
 }
 
 .tasks-header h3 {
     font-size: 1.8rem;
     color: #343a40;
     font-weight: 600;
+    margin: 0;
+}
+
+.tasks-summary {
+    background-color: #e9ecef;
+    padding: 0.5rem 1rem;
+    border-radius: 20px;
+    font-weight: 500;
+    color: #495057;
+    font-size: 1rem;
 }
 
 .tasks-list {
@@ -580,6 +731,15 @@ export default {
     background-color: #e0a800;
 }
 
+.btn-edit {
+    background-color: #ffc107;
+    color: #212529;
+}
+
+.btn-edit:hover {
+    background-color: #e0a800;
+}
+
 .btn-icon {
     margin-right: 8px;
     font-size: 14px;
@@ -662,6 +822,95 @@ export default {
     color: #6c757d;
 }
 
+/* Стили для модального окна редактирования */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.modal-content {
+    background: white;
+    padding: 2rem;
+    border-radius: 12px;
+    max-width: 500px;
+    width: 90%;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+}
+
+.modal-content h3 {
+    margin-bottom: 1.5rem;
+    color: #343a40;
+    font-size: 1.5rem;
+    text-align: center;
+}
+
+.modal-content .form-group {
+    margin-bottom: 1.5rem;
+}
+
+.modal-content label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 500;
+    color: #495057;
+}
+
+.time-inputs {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    justify-content: center;
+}
+
+.time-input {
+    width: 80px;
+    padding: 0.75rem;
+    text-align: center;
+    border: 2px solid #e9ecef;
+    border-radius: 6px;
+    font-size: 1rem;
+}
+
+.time-input:focus {
+    border-color: #007bff;
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+}
+
+.time-summary {
+    margin-top: 0.5rem;
+    color: #666;
+    font-size: 0.9rem;
+    text-align: center;
+    font-style: italic;
+}
+
+.modal-actions {
+    display: flex;
+    gap: 1rem;
+    justify-content: center;
+    margin-top: 1.5rem;
+}
+
+.btn-secondary {
+    background-color: #6c757d;
+    color: white;
+}
+
+.btn-secondary:hover {
+    background-color: #5a6268;
+}
+
 @media (max-width: 768px) {
     .project-detail {
         padding: 0 15px;
@@ -722,6 +971,28 @@ export default {
     .back-btn {
         align-self: center;
     }
+
+    .tasks-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .modal-content {
+        padding: 1.5rem;
+        margin: 1rem;
+    }
+
+    .time-inputs {
+        flex-wrap: wrap;
+    }
+
+    .time-input {
+        width: 70px;
+    }
+
+    .modal-actions {
+        flex-direction: column;
+    }
 }
 
 @media (max-width: 480px) {
@@ -753,6 +1024,11 @@ export default {
 
     .btn {
         width: 100%;
+    }
+
+    .time-input {
+        width: 60px;
+        padding: 0.5rem;
     }
 }
 </style>

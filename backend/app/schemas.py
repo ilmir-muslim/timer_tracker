@@ -14,6 +14,10 @@ class ProjectCreate(ProjectBase):
     pass
 
 
+class ProjectUpdate(BaseModel):
+    name: Optional[str] = None
+
+
 class Project(ProjectBase):
     id: int
     created_at: datetime
@@ -31,20 +35,17 @@ class TaskCreate(TaskBase):
     pass
 
 
+class TaskUpdate(BaseModel):
+    title: Optional[str] = None
+    total_time: Optional[float] = None
+    project_id: Optional[int] = None
+
+
 class Task(TaskBase):
     id: int
     created_at: datetime
     total_time: Optional[float] = 0.0
     is_timer_running: Optional[bool] = False
-
-    model_config = ConfigDict(from_attributes=True)
-
-
-class TimeEntry(BaseModel):
-    id: int
-    start_time: Optional[datetime] = None
-    end_time: Optional[datetime] = None
-    is_active: Optional[bool]
 
     model_config = ConfigDict(from_attributes=True)
 

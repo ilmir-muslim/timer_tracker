@@ -27,16 +27,61 @@
 </template>
 
 <script>
-import { mapActions } from 'vuex'
+import { mapActions, mapState } from 'vuex'
 
 export default {
   name: 'App',
+  computed: {
+    ...mapState(['tasks'])
+  },
   methods: {
-    ...mapActions(['logout']),
+    ...mapActions(['logout', 'pauseTimer']),
     async handleLogout() {
       await this.logout()
       this.$router.push('/login')
+    },
+    // Останавливаем все активные таймеры при закрытии страницы
+    async stopAllActiveTimers() {
+      const activeTasks = this.tasks.filter(task => task.is_timer_running)
+
+      for (const task of activeTasks) {
+        try {
+          await this.pauseTimer(task.id)
+          console.log(`Автоматически остановлен таймер задачи: ${task.title}`)
+        } catch (error) {
+          console.error('Ошибка при остановке таймера:', error)
+        }
+      }
+    },
+    // Обработчик перед закрытием страницы
+    handleBeforeUnload(event) {
+      const activeTasks = this.tasks.filter(task => task.is_timer_running)
+
+      if (activeTasks.length > 0) {
+        // Показываем предупреждение (опционально)
+        event.preventDefault()
+        event.returnValue = 'У вас есть активные таймеры. Они будут автоматически остановлены.'
+
+        // Отправляем запросы на остановку таймеров
+        // Используем sendBeacon для надежной отправки при закрытии страницы
+        activeTasks.forEach(task => {
+          const data = JSON.stringify({ task_id: task.id })
+          navigator.sendBeacon(`${process.env.VUE_APP_API_BASE_URL || 'http://localhost:8000'}/timer/pause/${task.id}`, data)
+        })
+      }
     }
+  },
+  mounted() {
+    // Добавляем обработчик закрытия страницы
+    window.addEventListener('beforeunload', this.handleBeforeUnload)
+
+    // Также останавливаем таймеры при размонтировании приложения
+    window.addEventListener('unload', this.stopAllActiveTimers)
+  },
+  beforeUnmount() {
+    // Убираем обработчики при размонтировании компонента
+    window.removeEventListener('beforeunload', this.handleBeforeUnload)
+    window.removeEventListener('unload', this.stopAllActiveTimers)
   }
 }
 </script>

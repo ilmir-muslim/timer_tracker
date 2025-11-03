@@ -1,7 +1,6 @@
 from sqlalchemy.orm import Session
-from datetime import datetime
+from datetime import datetime, timedelta
 from . import models, schemas
-from .auth import get_password_hash
 
 
 def get_user_by_username(db: Session, username: str):
@@ -9,8 +8,7 @@ def get_user_by_username(db: Session, username: str):
 
 
 def create_user(db: Session, user: schemas.UserCreate):
-    hashed_password = get_password_hash(user.password)
-    db_user = models.User(username=user.username, password=hashed_password)
+    db_user = models.User(username=user.username, password=user.password)
     db.add(db_user)
     db.commit()
     db.refresh(db_user)
@@ -26,20 +24,19 @@ def get_projects_by_owner(db: Session, owner_id: int, skip: int = 0, limit: int 
         .all()
     )
 
+    # Обновляем общее время проектов на основе задач
     for project in projects:
-        total_seconds = 0
+        total_time = 0
         for task in project.tasks:
-            for time_entry in task.time_entries:
-                if time_entry.end_time and time_entry.start_time:
-                    total_seconds += (
-                        time_entry.end_time - time_entry.start_time
-                    ).total_seconds()
-                elif time_entry.start_time and time_entry.is_active:
-                    total_seconds += (
-                        datetime.now() - time_entry.start_time
-                    ).total_seconds()
+            total_time += task.total_time or 0
+            # Если таймер запущен, добавляем текущее время
+            if task.is_timer_running and task.last_start_time:
+                current_session_time = (
+                    datetime.now() - task.last_start_time
+                ).total_seconds()
+                total_time += current_session_time
 
-        project.total_time = total_seconds
+        project.total_time = total_time
 
     return projects
 
@@ -52,9 +49,30 @@ def create_project(db: Session, project: schemas.ProjectCreate, owner_id: int):
     return db_project
 
 
+def update_project(db: Session, project_id: int, project_update: schemas.ProjectUpdate):
+    db_project = (
+        db.query(models.Project).filter(models.Project.id == project_id).first()
+    )
+    if not db_project:
+        return None
+
+    update_data = project_update.dict(exclude_unset=True)
+
+    for field, value in update_data.items():
+        setattr(db_project, field, value)
+
+    db.commit()
+    db.refresh(db_project)
+    return db_project
+
+
 def create_task(db: Session, task: schemas.TaskCreate, user_id: int):
     db_task = models.Task(
-        title=task.title, project_id=task.project_id, owner_id=user_id
+        title=task.title,
+        project_id=task.project_id,
+        owner_id=user_id,
+        total_time=0.0,
+        is_timer_running=False,
     )
     db.add(db_task)
     db.commit()
@@ -71,75 +89,64 @@ def get_tasks_by_owner(db: Session, owner_id: int, skip: int = 0, limit: int = 1
         .all()
     )
 
+    # Обновляем время для задач с запущенным таймером
     for task in tasks:
-        total_seconds = 0
-        is_time_running = False
-
-        for time_entry in task.time_entries:
-            if time_entry.end_time and time_entry.start_time:
-                total_seconds += (
-                    time_entry.end_time - time_entry.start_time
-                ).total_seconds()
-            elif time_entry.start_time and time_entry.is_active:
-                is_time_running = True
-                total_seconds += (
-                    datetime.now() - time_entry.start_time
-                ).total_seconds()
-
-        task.total_time = total_seconds
-        task.is_timer_running = is_time_running
+        if task.is_timer_running and task.last_start_time:
+            current_session_time = (
+                datetime.now() - task.last_start_time
+            ).total_seconds()
+            task.total_time = (task.total_time or 0) + current_session_time
 
     return tasks
 
 
-def start_timer(db: Session, task_id: int):
-    running_timers = (
-        db.query(models.TimeEntry)
-        .filter(models.TimeEntry.task_id == task_id, models.TimeEntry.is_active == True)
-        .all()
-    )
+def update_task(db: Session, task_id: int, task_update: schemas.TaskUpdate):
+    db_task = db.query(models.Task).filter(models.Task.id == task_id).first()
+    if not db_task:
+        return None
 
-    for timer in running_timers:
-        timer.is_active = False
-        timer.end_time = datetime.now()
+    update_data = task_update.dict(exclude_unset=True)
 
-    db_time_entry = models.TimeEntry(
-        task_id=task_id, start_time=datetime.now(), is_active=True
-    )
-    db.add(db_time_entry)
+    for field, value in update_data.items():
+        setattr(db_task, field, value)
+
     db.commit()
-    db.refresh(db_time_entry)
-    return db_time_entry
+    db.refresh(db_task)
+    return db_task
+
+
+def start_timer(db: Session, task_id: int):
+    task = db.query(models.Task).filter(models.Task.id == task_id).first()
+    if not task:
+        return None
+
+    # Обновляем общее время перед запуском
+    if task.is_timer_running and task.last_start_time:
+        current_session_time = (datetime.now() - task.last_start_time).total_seconds()
+        task.total_time = (task.total_time or 0) + current_session_time
+
+    task.is_timer_running = True
+    task.last_start_time = datetime.now()
+    db.commit()
+    db.refresh(task)
+    return task
 
 
 def pause_timer(db: Session, task_id: int):
-    # Find active timer for this task
-    db_time_entry = (
-        db.query(models.TimeEntry)
-        .filter(models.TimeEntry.task_id == task_id, models.TimeEntry.is_active == True)
-        .first()
-    )
+    task = db.query(models.Task).filter(models.Task.id == task_id).first()
+    if not task or not task.is_timer_running:
+        return None
 
-    if db_time_entry:
-        db_time_entry.is_active = False
-        db_time_entry.end_time = datetime.now()
-        db.commit()
-        db.refresh(db_time_entry)
-        return db_time_entry
-    return None
+    # Добавляем время текущей сессии к общему времени
+    if task.last_start_time:
+        current_session_time = (datetime.now() - task.last_start_time).total_seconds()
+        task.total_time = (task.total_time or 0) + current_session_time
 
-
-def get_time_entries_by_owner(
-    db: Session, owner_id: int, skip: int = 0, limit: int = 100
-):
-    return (
-        db.query(models.TimeEntry)
-        .join(models.Task)
-        .filter(models.Task.owner_id == owner_id)
-        .offset(skip)
-        .limit(limit)
-        .all()
-    )
+    task.is_timer_running = False
+    task.last_start_time = None
+    db.commit()
+    db.refresh(task)
+    return task
 
 
 def delete_project(db: Session, project_id: int):
@@ -147,7 +154,7 @@ def delete_project(db: Session, project_id: int):
         db.query(models.Project).filter(models.Project.id == project_id).first()
     )
     if db_project:
-        # Сначала удаляем связанные задачи
+        # Удаляем связанные задачи
         db.query(models.Task).filter(models.Task.project_id == project_id).delete()
         db.delete(db_project)
         db.commit()
@@ -158,9 +165,38 @@ def delete_project(db: Session, project_id: int):
 def delete_task(db: Session, task_id: int):
     db_task = db.query(models.Task).filter(models.Task.id == task_id).first()
     if db_task:
-        # Удаляем связанные time_entries
-        db.query(models.TimeEntry).filter(models.TimeEntry.task_id == task_id).delete()
         db.delete(db_task)
         db.commit()
         return True
     return False
+
+
+def auto_pause_old_timers(db: Session, max_duration_hours: int = 24):
+    """
+    Автоматически останавливает таймеры, которые работают дольше указанного времени
+    """
+    cutoff_time = datetime.now() - timedelta(hours=max_duration_hours)
+
+    old_tasks = (
+        db.query(models.Task)
+        .filter(
+            models.Task.is_timer_running == True,
+            models.Task.last_start_time < cutoff_time,
+        )
+        .all()
+    )
+
+    for task in old_tasks:
+        if task.last_start_time:
+            # Рассчитываем максимальное время (24 часа)
+            max_duration = timedelta(hours=max_duration_hours)
+            elapsed_time = datetime.now() - task.last_start_time
+
+            if elapsed_time > max_duration:
+                # Добавляем только максимальное разрешенное время
+                task.total_time = (task.total_time or 0) + max_duration.total_seconds()
+                task.is_timer_running = False
+                task.last_start_time = None
+
+    db.commit()
+    return len(old_tasks)

@@ -6,12 +6,17 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-SQLACHEMY_DATABASE_URL = os.getenv('DATABASE_URL')
+# Используем SQLite вместо MySQL
+SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./task_tracker.db")
 
-engine = create_engine(SQLACHEMY_DATABASE_URL)
+engine = create_engine(
+    SQLALCHEMY_DATABASE_URL,
+    connect_args={"check_same_thread": False},  # Только для SQLite
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 Base = declarative_base()
+
 
 def get_db():
     db = SessionLocal()
