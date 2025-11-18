@@ -10,7 +10,10 @@ export default createStore({
         user: null,
         projects: [],
         tasks: [],
-        timeEntries: []
+        timeEntries: [],
+        taskComments: {}, // Новое состояние для комментариев
+        subTasks: {}, // Новое состояние для подзадач
+        subTaskComments: {} // Новое состояние для комментариев подзадач
     },
     mutations: {
         SET_TOKEN(state, token) {
@@ -55,6 +58,73 @@ export default createStore({
             const index = state.projects.findIndex(p => p.id === updatedProject.id)
             if (index !== -1) {
                 state.projects.splice(index, 1, updatedProject)
+            }
+        },
+
+        // Новые мутации для комментариев и подзадач
+        SET_TASK_COMMENTS(state, { taskId, comments }) {
+            state.taskComments[taskId] = comments
+        },
+        ADD_TASK_COMMENT(state, { taskId, comment }) {
+            if (!state.taskComments[taskId]) {
+                state.taskComments[taskId] = []
+            }
+            state.taskComments[taskId].push(comment)
+        },
+        REMOVE_TASK_COMMENT(state, { taskId, commentId }) {
+            if (state.taskComments[taskId]) {
+                state.taskComments[taskId] = state.taskComments[taskId].filter(
+                    comment => comment.id !== commentId
+                )
+            }
+        },
+        SET_SUB_TASKS(state, { taskId, subTasks }) {
+            state.subTasks[taskId] = subTasks
+        },
+        ADD_SUB_TASK(state, { taskId, subTask }) {
+            if (!state.subTasks[taskId]) {
+                state.subTasks[taskId] = []
+            }
+            state.subTasks[taskId].push(subTask)
+        },
+        UPDATE_SUB_TASK(state, { taskId, subTask }) {
+            if (state.subTasks[taskId]) {
+                const index = state.subTasks[taskId].findIndex(st => st.id === subTask.id)
+                if (index !== -1) {
+                    state.subTasks[taskId].splice(index, 1, subTask)
+                }
+            }
+        },
+        REMOVE_SUB_TASK(state, { taskId, subTaskId }) {
+            if (state.subTasks[taskId]) {
+                state.subTasks[taskId] = state.subTasks[taskId].filter(
+                    subTask => subTask.id !== subTaskId
+                )
+            }
+        },
+        UPDATE_TASK_STATUS(state, { taskId, isCompleted }) {
+            const task = state.tasks.find(t => t.id === taskId)
+            if (task) {
+                task.is_completed = isCompleted
+                task.completed_at = isCompleted ? new Date().toISOString() : null
+            }
+        },
+
+        // Комментарии подзадач
+        SET_SUB_TASK_COMMENTS(state, { subTaskId, comments }) {
+            state.subTaskComments[subTaskId] = comments;
+        },
+        ADD_SUB_TASK_COMMENT(state, { subTaskId, comment }) {
+            if (!state.subTaskComments[subTaskId]) {
+                state.subTaskComments[subTaskId] = [];
+            }
+            state.subTaskComments[subTaskId].push(comment);
+        },
+        REMOVE_SUB_TASK_COMMENT(state, { subTaskId, commentId }) {
+            if (state.subTaskComments[subTaskId]) {
+                state.subTaskComments[subTaskId] = state.subTaskComments[subTaskId].filter(
+                    comment => comment.id !== commentId
+                );
             }
         }
     },
@@ -104,8 +174,8 @@ export default createStore({
         },
         async fetchTasks({ commit }) {
             try {
-                console.log('Загрузка задач из:', `${API_BASE_URL}/tasks/`)
-                const response = await axios.get(`${API_BASE_URL}/tasks/`)
+                console.log('Загрузка задач из:', `${API_BASE_URL}/tasks-with-details/`)
+                const response = await axios.get(`${API_BASE_URL}/tasks-with-details/`)
                 console.log('Ответ задач:', response.data)
                 commit('SET_TASKS', response.data)
             } catch (error) {
@@ -180,6 +250,120 @@ export default createStore({
                 console.error('Ошибка обновления проекта:', error)
                 throw error
             }
+        },
+
+        // Новые actions для комментариев и подзадач
+        async fetchTaskComments({ commit }, taskId) {
+            try {
+                const response = await axios.get(`${API_BASE_URL}/tasks/${taskId}/comments`)
+                commit('SET_TASK_COMMENTS', { taskId, comments: response.data })
+            } catch (error) {
+                console.error('Ошибка загрузки комментариев:', error)
+                throw error
+            }
+        },
+        async createTaskComment({ commit }, { taskId, content }) {
+            try {
+                const response = await axios.post(`${API_BASE_URL}/tasks/${taskId}/comments`, { content })
+                commit('ADD_TASK_COMMENT', { taskId, comment: response.data })
+                return response.data
+            } catch (error) {
+                console.error('Ошибка создания комментария:', error)
+                throw error
+            }
+        },
+        async deleteTaskComment({ commit }, { taskId, commentId }) {
+            try {
+                await axios.delete(`${API_BASE_URL}/comments/${commentId}`)
+                commit('REMOVE_TASK_COMMENT', { taskId, commentId })
+            } catch (error) {
+                console.error('Ошибка удаления комментария:', error)
+                throw error
+            }
+        },
+
+        // Подзадачи
+        async fetchSubTasks({ commit }, taskId) {
+            try {
+                const response = await axios.get(`${API_BASE_URL}/tasks/${taskId}/subtasks`)
+                commit('SET_SUB_TASKS', { taskId, subTasks: response.data })
+            } catch (error) {
+                console.error('Ошибка загрузки подзадач:', error)
+                throw error
+            }
+        },
+        async createSubTask({ commit }, { taskId, title }) {
+            try {
+                const response = await axios.post(`${API_BASE_URL}/tasks/${taskId}/subtasks`, { title })
+                commit('ADD_SUB_TASK', { taskId, subTask: response.data })
+                return response.data
+            } catch (error) {
+                console.error('Ошибка создания подзадачи:', error)
+                throw error
+            }
+        },
+        async updateSubTask({ commit }, { taskId, subTaskId, subTaskData }) {
+            try {
+                const response = await axios.put(`${API_BASE_URL}/subtasks/${subTaskId}`, subTaskData)
+                commit('UPDATE_SUB_TASK', { taskId, subTask: response.data })
+                return response.data
+            } catch (error) {
+                console.error('Ошибка обновления подзадачи:', error)
+                throw error
+            }
+        },
+        async deleteSubTask({ commit }, { taskId, subTaskId }) {
+            try {
+                await axios.delete(`${API_BASE_URL}/subtasks/${subTaskId}`)
+                commit('REMOVE_SUB_TASK', { taskId, subTaskId })
+            } catch (error) {
+                console.error('Ошибка удаления подзадачи:', error)
+                throw error
+            }
+        },
+
+        // Обновление статуса задачи
+        async updateTaskStatus({ commit }, { taskId, isCompleted }) {
+            try {
+                const response = await axios.put(`${API_BASE_URL}/tasks/${taskId}`, {
+                    is_completed: isCompleted
+                })
+                commit('UPDATE_TASK_STATUS', { taskId, isCompleted })
+                return response.data
+            } catch (error) {
+                console.error('Ошибка обновления статуса задачи:', error)
+                throw error
+            }
+        },
+
+        // Комментарии подзадач
+        async fetchSubTaskComments({ commit }, subTaskId) {
+            try {
+                const response = await axios.get(`${API_BASE_URL}/subtasks/${subTaskId}/comments`);
+                commit('SET_SUB_TASK_COMMENTS', { subTaskId, comments: response.data });
+            } catch (error) {
+                console.error('Ошибка загрузки комментариев подзадачи:', error);
+                throw error;
+            }
+        },
+        async createSubTaskComment({ commit }, { subTaskId, content }) {
+            try {
+                const response = await axios.post(`${API_BASE_URL}/subtasks/${subTaskId}/comments`, { content });
+                commit('ADD_SUB_TASK_COMMENT', { subTaskId, comment: response.data });
+                return response.data;
+            } catch (error) {
+                console.error('Ошибка создания комментария подзадачи:', error);
+                throw error;
+            }
+        },
+        async deleteSubTaskComment({ commit }, { subTaskId, commentId }) {
+            try {
+                await axios.delete(`${API_BASE_URL}/subtask-comments/${commentId}`);
+                commit('REMOVE_SUB_TASK_COMMENT', { subTaskId, commentId });
+            } catch (error) {
+                console.error('Ошибка удаления комментария подзадачи:', error);
+                throw error;
+            }
         }
     },
     getters: {
@@ -190,6 +374,26 @@ export default createStore({
         getActiveTimer: (state) => (taskId) => {
             const task = state.tasks.find(t => t.id === taskId)
             return task ? task.is_timer_running : false
+        },
+
+        // Новые геттеры для комментариев и подзадач
+        getTaskComments: (state) => (taskId) => {
+            return state.taskComments[taskId] || []
+        },
+        getSubTasks: (state) => (taskId) => {
+            return state.subTasks[taskId] || []
+        },
+        getCompletedSubTasksCount: (state) => (taskId) => {
+            const subTasks = state.subTasks[taskId] || []
+            return subTasks.filter(st => st.is_completed).length
+        },
+        getTotalSubTasksCount: (state) => (taskId) => {
+            return (state.subTasks[taskId] || []).length
+        },
+
+        // Комментарии подзадач
+        getSubTaskComments: (state) => (subTaskId) => {
+            return state.subTaskComments[subTaskId] || [];
         }
     }
 })

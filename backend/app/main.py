@@ -274,6 +274,153 @@ def delete_task(
     return {"message": "Task deleted"}
 
 
+# Комментарии к задачам
+@app.post("/tasks/{task_id}/comments", response_model=schemas.TaskComment)
+def create_task_comment(
+    task_id: int,
+    comment: schemas.TaskCommentCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    # Проверяем, что задача принадлежит текущему пользователю
+    task = db.query(models.Task).filter(models.Task.id == task_id).first()
+    if not task or task.owner_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    return crud.create_task_comment(db=db, comment=comment, task_id=task_id)
+
+
+@app.get("/tasks/{task_id}/comments", response_model=List[schemas.TaskComment])
+def get_task_comments(
+    task_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    # Проверяем, что задача принадлежит текущему пользователю
+    task = db.query(models.Task).filter(models.Task.id == task_id).first()
+    if not task or task.owner_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    return crud.get_task_comments(db=db, task_id=task_id)
+
+
+@app.delete("/comments/{comment_id}")
+def delete_task_comment(
+    comment_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    # Проверяем, что комментарий принадлежит задаче пользователя
+    comment = (
+        db.query(models.TaskComment).filter(models.TaskComment.id == comment_id).first()
+    )
+    if not comment:
+        raise HTTPException(status_code=404, detail="Comment not found")
+
+    task = db.query(models.Task).filter(models.Task.id == comment.task_id).first()
+    if not task or task.owner_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    success = crud.delete_task_comment(db, comment_id=comment_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    return {"message": "Comment deleted"}
+
+
+# Подзадачи
+@app.post("/tasks/{task_id}/subtasks", response_model=schemas.SubTask)
+def create_sub_task(
+    task_id: int,
+    sub_task: schemas.SubTaskCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    # Проверяем, что задача принадлежит текущему пользователю
+    task = db.query(models.Task).filter(models.Task.id == task_id).first()
+    if not task or task.owner_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    return crud.create_sub_task(db=db, sub_task=sub_task, task_id=task_id)
+
+
+@app.get("/tasks/{task_id}/subtasks", response_model=List[schemas.SubTask])
+def get_sub_tasks(
+    task_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    # Проверяем, что задача принадлежит текущему пользователю
+    task = db.query(models.Task).filter(models.Task.id == task_id).first()
+    if not task or task.owner_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    return crud.get_sub_tasks(db=db, task_id=task_id)
+
+
+@app.put("/subtasks/{sub_task_id}", response_model=schemas.SubTask)
+def update_sub_task(
+    sub_task_id: int,
+    sub_task_update: schemas.SubTaskUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    # Проверяем, что подзадача принадлежит задаче пользователя
+    sub_task = db.query(models.SubTask).filter(models.SubTask.id == sub_task_id).first()
+    if not sub_task:
+        raise HTTPException(status_code=404, detail="Sub task not found")
+
+    task = db.query(models.Task).filter(models.Task.id == sub_task.task_id).first()
+    if not task or task.owner_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    updated_sub_task = crud.update_sub_task(
+        db=db, sub_task_id=sub_task_id, sub_task_update=sub_task_update
+    )
+    if not updated_sub_task:
+        raise HTTPException(status_code=404, detail="Sub task not found")
+    return updated_sub_task
+
+
+@app.delete("/subtasks/{sub_task_id}")
+def delete_sub_task(
+    sub_task_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    # Проверяем, что подзадача принадлежит задаче пользователя
+    sub_task = db.query(models.SubTask).filter(models.SubTask.id == sub_task_id).first()
+    if not sub_task:
+        raise HTTPException(status_code=404, detail="Sub task not found")
+
+    task = db.query(models.Task).filter(models.Task.id == sub_task.task_id).first()
+    if not task or task.owner_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    success = crud.delete_sub_task(db, sub_task_id=sub_task_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Sub task not found")
+    return {"message": "Sub task deleted"}
+
+
+@app.get("/tasks-with-details/", response_model=List[schemas.Task])
+def read_tasks_with_details(
+    skip: int = 0,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    tasks = crud.get_tasks_by_owner(
+        db=db, owner_id=current_user.id, skip=skip, limit=limit
+    )
+
+    # Добавляем подзадачи и комментарии к каждой задаче
+    for task in tasks:
+        task.comments = crud.get_task_comments(db=db, task_id=task.id)
+        task.sub_tasks = crud.get_sub_tasks(db=db, task_id=task.id)
+
+    return tasks
+
+
 @app.post("/timer/start/{task_id}")
 def start_timer(
     task_id: int,
@@ -331,6 +478,79 @@ def stop_all_timers(
             stopped_count += 1
 
     return {"message": f"Остановлено {stopped_count} таймеров"}
+
+
+# Комментарии подзадач
+@app.post("/subtasks/{sub_task_id}/comments", response_model=schemas.SubTaskComment)
+def create_sub_task_comment(
+    sub_task_id: int,
+    comment: schemas.SubTaskCommentCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    # Проверяем, что подзадача принадлежит задаче пользователя
+    sub_task = db.query(models.SubTask).filter(models.SubTask.id == sub_task_id).first()
+    if not sub_task:
+        raise HTTPException(status_code=404, detail="Sub task not found")
+
+    task = db.query(models.Task).filter(models.Task.id == sub_task.task_id).first()
+    if not task or task.owner_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    return crud.create_sub_task_comment(db=db, comment=comment, sub_task_id=sub_task_id)
+
+
+@app.get(
+    "/subtasks/{sub_task_id}/comments", response_model=List[schemas.SubTaskComment]
+)
+def get_sub_task_comments(
+    sub_task_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    # Проверяем, что подзадача принадлежит задаче пользователя
+    sub_task = db.query(models.SubTask).filter(models.SubTask.id == sub_task_id).first()
+    if not sub_task:
+        raise HTTPException(status_code=404, detail="Sub task not found")
+
+    task = db.query(models.Task).filter(models.Task.id == sub_task.task_id).first()
+    if not task or task.owner_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    return crud.get_sub_task_comments(db=db, sub_task_id=sub_task_id)
+
+
+@app.delete("/subtask-comments/{comment_id}")
+def delete_sub_task_comment(
+    comment_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    # Проверяем, что комментарий принадлежит подзадаче пользователя
+    comment = (
+        db.query(models.SubTaskComment)
+        .filter(models.SubTaskComment.id == comment_id)
+        .first()
+    )
+    if not comment:
+        raise HTTPException(status_code=404, detail="Comment not found")
+
+    sub_task = (
+        db.query(models.SubTask)
+        .filter(models.SubTask.id == comment.sub_task_id)
+        .first()
+    )
+    if not sub_task:
+        raise HTTPException(status_code=404, detail="Sub task not found")
+
+    task = db.query(models.Task).filter(models.Task.id == sub_task.task_id).first()
+    if not task or task.owner_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    success = crud.delete_sub_task_comment(db, comment_id=comment_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    return {"message": "Comment deleted"}
 
 
 if __name__ == "__main__":

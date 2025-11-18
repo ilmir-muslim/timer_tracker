@@ -73,6 +73,8 @@ def create_task(db: Session, task: schemas.TaskCreate, user_id: int):
         owner_id=user_id,
         total_time=0.0,
         is_timer_running=False,
+        priority=task.priority or 1,
+        due_date=task.due_date,
     )
     db.add(db_task)
     db.commit()
@@ -106,6 +108,12 @@ def update_task(db: Session, task_id: int, task_update: schemas.TaskUpdate):
         return None
 
     update_data = task_update.dict(exclude_unset=True)
+
+    # Если отмечаем задачу как выполненную, устанавливаем время выполнения
+    if update_data.get("is_completed") and not db_task.is_completed:
+        update_data["completed_at"] = datetime.now()
+    elif not update_data.get("is_completed") and db_task.is_completed:
+        update_data["completed_at"] = None
 
     for field, value in update_data.items():
         setattr(db_task, field, value)
@@ -171,7 +179,7 @@ def delete_task(db: Session, task_id: int):
     return False
 
 
-def auto_pause_old_timers(db: Session, max_duration_hours: int = 24):
+def auto_pause_old_timers(db: Session, max_duration_hours: int = 1):
     """
     Автоматически останавливает таймеры, которые работают дольше указанного времени
     """
@@ -200,3 +208,114 @@ def auto_pause_old_timers(db: Session, max_duration_hours: int = 24):
 
     db.commit()
     return len(old_tasks)
+
+
+# Комментарии к задачам
+def create_task_comment(db: Session, comment: schemas.TaskCommentCreate, task_id: int):
+    db_comment = models.TaskComment(content=comment.content, task_id=task_id)
+    db.add(db_comment)
+    db.commit()
+    db.refresh(db_comment)
+    return db_comment
+
+
+def get_task_comments(db: Session, task_id: int):
+    return (
+        db.query(models.TaskComment).filter(models.TaskComment.task_id == task_id).all()
+    )
+
+
+def delete_task_comment(db: Session, comment_id: int):
+    db_comment = (
+        db.query(models.TaskComment).filter(models.TaskComment.id == comment_id).first()
+    )
+    if db_comment:
+        db.delete(db_comment)
+        db.commit()
+        return True
+    return False
+
+
+# Подзадачи
+def create_sub_task(db: Session, sub_task: schemas.SubTaskCreate, task_id: int):
+    db_sub_task = models.SubTask(title=sub_task.title, task_id=task_id)
+    db.add(db_sub_task)
+    db.commit()
+    db.refresh(db_sub_task)
+    return db_sub_task
+
+
+def get_sub_tasks(db: Session, task_id: int):
+    sub_tasks = db.query(models.SubTask).filter(models.SubTask.task_id == task_id).all()
+    # Добавляем комментарии к каждой подзадаче
+    for sub_task in sub_tasks:
+        sub_task.comments = get_sub_task_comments(db, sub_task.id)
+    return sub_tasks
+
+
+def update_sub_task(
+    db: Session, sub_task_id: int, sub_task_update: schemas.SubTaskUpdate
+):
+    db_sub_task = (
+        db.query(models.SubTask).filter(models.SubTask.id == sub_task_id).first()
+    )
+    if not db_sub_task:
+        return None
+
+    update_data = sub_task_update.dict(exclude_unset=True)
+
+    # Если отмечаем как выполненную, устанавливаем время выполнения
+    if update_data.get("is_completed") and not db_sub_task.is_completed:
+        update_data["completed_at"] = datetime.now()
+    elif not update_data.get("is_completed") and db_sub_task.is_completed:
+        update_data["completed_at"] = None
+
+    for field, value in update_data.items():
+        setattr(db_sub_task, field, value)
+
+    db.commit()
+    db.refresh(db_sub_task)
+    return db_sub_task
+
+
+def delete_sub_task(db: Session, sub_task_id: int):
+    db_sub_task = (
+        db.query(models.SubTask).filter(models.SubTask.id == sub_task_id).first()
+    )
+    if db_sub_task:
+        db.delete(db_sub_task)
+        db.commit()
+        return True
+    return False
+
+
+# Комментарии подзадач
+def create_sub_task_comment(
+    db: Session, comment: schemas.SubTaskCommentCreate, sub_task_id: int
+):
+    db_comment = models.SubTaskComment(content=comment.content, sub_task_id=sub_task_id)
+    db.add(db_comment)
+    db.commit()
+    db.refresh(db_comment)
+    return db_comment
+
+
+def get_sub_task_comments(db: Session, sub_task_id: int):
+    return (
+        db.query(models.SubTaskComment)
+        .filter(models.SubTaskComment.sub_task_id == sub_task_id)
+        .all()
+    )
+
+
+def delete_sub_task_comment(db: Session, comment_id: int):
+    db_comment = (
+        db.query(models.SubTaskComment)
+        .filter(models.SubTaskComment.id == comment_id)
+        .first()
+    )
+    if db_comment:
+        db.delete(db_comment)
+        db.commit()
+        return True
+    return False
