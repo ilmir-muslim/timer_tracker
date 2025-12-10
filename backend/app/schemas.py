@@ -28,7 +28,7 @@ class Project(ProjectBase):
 
 class TaskBase(BaseModel):
     title: str
-    project_id: int
+    project_id: Optional[int] = None
 
 
 class TaskCreate(TaskBase):
@@ -43,6 +43,7 @@ class TaskUpdate(BaseModel):
     is_completed: Optional[bool] = None
     priority: Optional[int] = None
     due_date: Optional[datetime] = None
+    created_at: Optional[datetime] = None
 
 
 class SubTaskBase(BaseModel):

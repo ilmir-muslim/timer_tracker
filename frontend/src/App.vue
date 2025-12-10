@@ -5,6 +5,8 @@
         <h1>⏱️ Учёт времени </h1>
         <p>Эффективно отслеживайте время ваших проектов</p>
         <nav v-if="$store.getters.isAuthenticated" class="nav">
+          <router-link to="/daily-tasks" class="nav-link">📅 Ежедневные задачи</router-link>
+          <router-link to="/" class="nav-link">📁 Проекты</router-link>
           <button @click="handleLogout" class="btn btn-logout">Выйти</button>
         </nav>
         <nav v-else class="nav">

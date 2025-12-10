@@ -3,6 +3,7 @@ import ProjectList from '../components/ProjectList.vue'
 import ProjectDetail from '../components/ProjectDetail.vue'
 import Login from '../components/Login.vue'
 import Register from '../components/Register.vue'
+import DailyTasks from '../components/DailyTasks.vue'  // Добавляем новый компонент
 import store from '../store'
 
 const routes = [
@@ -17,6 +18,12 @@ const routes = [
         name: 'ProjectDetail',
         component: ProjectDetail,
         props: true,
+        meta: { requiresAuth: true }
+    },
+    {
+        path: '/daily-tasks',
+        name: 'DailyTasks',
+        component: DailyTasks,
         meta: { requiresAuth: true }
     },
     {

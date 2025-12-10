@@ -206,13 +206,17 @@ def create_task(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    # Проверяем, что проект принадлежит текущему пользователю
-    project = (
-        db.query(models.Project).filter(models.Project.id == task.project_id).first()
-    )
-    if not project or project.owner_id != current_user.id:
-        raise HTTPException(status_code=404, detail="Project not found")
+    # Если указан project_id, проверяем что проект принадлежит текущему пользователю
+    if task.project_id is not None:
+        project = (
+            db.query(models.Project)
+            .filter(models.Project.id == task.project_id)
+            .first()
+        )
+        if not project or project.owner_id != current_user.id:
+            raise HTTPException(status_code=404, detail="Project not found")
 
+    # Если project_id не указан (ежедневная задача), не проверяем проект
     return crud.create_task(db=db, task=task, user_id=current_user.id)
 
 
