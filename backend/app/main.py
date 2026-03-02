@@ -10,15 +10,13 @@ from app.auth import verify_password
 from . import crud, models, schemas
 from .database import SessionLocal, engine
 
-# Создаем таблицы
+# Создаём таблицы
 models.Base.metadata.create_all(bind=engine)
 
-# Настройки аутентификации
 SECRET_KEY = "simple-secret-key-for-development-change-in-production"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 24 * 60  # 24 часа
 
-# Глобальная переменная для планировщика
 scheduler = None
 
 
@@ -60,7 +58,6 @@ def get_current_user(
     return user
 
 
-# Функция для автоматической остановки старых таймеров
 def auto_pause_old_timers():
     with SessionLocal() as db:
         try:
@@ -71,33 +68,23 @@ def auto_pause_old_timers():
             print(f"Ошибка при автоматической остановке таймеров: {e}")
 
 
-# Lifespan контекст для управления жизненным циклом приложения
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup логика
     print("Запуск приложения...")
-
-    # Инициализация планировщика
     from apscheduler.schedulers.background import BackgroundScheduler
     from apscheduler.triggers.interval import IntervalTrigger
 
     global scheduler
     scheduler = BackgroundScheduler()
-
-    # Проверяем старые таймеры каждые 30 минут
     scheduler.add_job(
         auto_pause_old_timers,
         trigger=IntervalTrigger(minutes=30),
         id="auto_pause_timers",
         replace_existing=True,
     )
-
     scheduler.start()
     print("Планировщик запущен")
-
-    yield  # Здесь приложение работает
-
-    # Shutdown логика
+    yield
     print("Остановка приложения...")
     if scheduler and scheduler.running:
         scheduler.shutdown()
@@ -107,7 +94,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Task Tracker API",
     root_path="/api",
-    lifespan=lifespan,  # Используем lifespan вместо устаревших событий
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -119,6 +106,9 @@ app.add_middleware(
 )
 
 
+# ------------------------------------------------------------
+# Auth
+# ------------------------------------------------------------
 @app.post("/register", response_model=schemas.User)
 def register(user: schemas.UserCreate, db: Session = Depends(get_db)):
     db_user = crud.get_user_by_username(db, username=user.username)
@@ -136,11 +126,13 @@ def login(login_data: schemas.LoginRequest, db: Session = Depends(get_db)):
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-
     access_token = create_access_token(data={"sub": user.username})
     return {"access_token": access_token, "token_type": "bearer"}
 
 
+# ------------------------------------------------------------
+# Projects
+# ------------------------------------------------------------
 @app.post("/projects/", response_model=schemas.Project)
 def create_project(
     project: schemas.ProjectCreate,
@@ -169,17 +161,14 @@ def update_project(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    # Проверяем, что проект принадлежит текущему пользователю
     project = db.query(models.Project).filter(models.Project.id == project_id).first()
     if not project or project.owner_id != current_user.id:
         raise HTTPException(status_code=404, detail="Project not found")
-
     updated_project = crud.update_project(
         db=db, project_id=project_id, project_update=project_update
     )
     if not updated_project:
         raise HTTPException(status_code=404, detail="Project not found")
-
     return updated_project
 
 
@@ -189,24 +178,24 @@ def delete_project(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    # Проверяем, что проект принадлежит текущему пользователю
     project = db.query(models.Project).filter(models.Project.id == project_id).first()
     if not project or project.owner_id != current_user.id:
         raise HTTPException(status_code=404, detail="Project not found")
-
     success = crud.delete_project(db, project_id=project_id)
     if not success:
         raise HTTPException(status_code=404, detail="Project not found")
     return {"message": "Project deleted"}
 
 
+# ------------------------------------------------------------
+# Tasks
+# ------------------------------------------------------------
 @app.post("/tasks/", response_model=schemas.Task)
 def create_task(
     task: schemas.TaskCreate,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    # Если указан project_id, проверяем что проект принадлежит текущему пользователю
     if task.project_id is not None:
         project = (
             db.query(models.Project)
@@ -215,8 +204,6 @@ def create_task(
         )
         if not project or project.owner_id != current_user.id:
             raise HTTPException(status_code=404, detail="Project not found")
-
-    # Если project_id не указан (ежедневная задача), не проверяем проект
     return crud.create_task(db=db, task=task, user_id=current_user.id)
 
 
@@ -239,12 +226,9 @@ def update_task(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    # Проверяем, что задача принадлежит текущему пользователю
     task = db.query(models.Task).filter(models.Task.id == task_id).first()
     if not task or task.owner_id != current_user.id:
         raise HTTPException(status_code=404, detail="Task not found")
-
-    # Если меняется project_id, проверяем что новый проект принадлежит пользователю
     if task_update.project_id and task_update.project_id != task.project_id:
         new_project = (
             db.query(models.Project)
@@ -253,11 +237,9 @@ def update_task(
         )
         if not new_project or new_project.owner_id != current_user.id:
             raise HTTPException(status_code=404, detail="Project not found")
-
     updated_task = crud.update_task(db=db, task_id=task_id, task_update=task_update)
     if not updated_task:
         raise HTTPException(status_code=404, detail="Task not found")
-
     return updated_task
 
 
@@ -267,18 +249,118 @@ def delete_task(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    # Проверяем, что задача принадлежит текущему пользователю
     task = db.query(models.Task).filter(models.Task.id == task_id).first()
     if not task or task.owner_id != current_user.id:
         raise HTTPException(status_code=404, detail="Task not found")
-
     success = crud.delete_task(db, task_id=task_id)
     if not success:
         raise HTTPException(status_code=404, detail="Task not found")
     return {"message": "Task deleted"}
 
 
-# Комментарии к задачам
+@app.get("/tasks-with-details/", response_model=List[schemas.Task])
+def read_tasks_with_details(
+    skip: int = 0,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    tasks = crud.get_tasks_by_owner(
+        db=db, owner_id=current_user.id, skip=skip, limit=limit
+    )
+    for task in tasks:
+        task.comments = crud.get_task_comments(db=db, task_id=task.id)
+        task.sub_tasks = crud.get_sub_tasks(db=db, task_id=task.id)
+    return tasks
+
+
+# ------------------------------------------------------------
+# Timer (Task-specific)
+# ------------------------------------------------------------
+@app.post("/timer/start/{task_id}")
+def start_timer(
+    task_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    task = db.query(models.Task).filter(models.Task.id == task_id).first()
+    if not task or task.owner_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    crud.start_timer(db=db, task_id=task_id)
+    crud.start_daily_timer(db, current_user.id)
+    daily_session = crud.get_today_daily_session(db, current_user.id)
+    if daily_session:
+        if daily_session.is_timer_running and daily_session.last_start_time:
+            elapsed = (datetime.now() - daily_session.last_start_time).total_seconds()
+            daily_session.total_time += elapsed
+    return {
+        "message": "Timer started",
+        "task_id": task_id,
+        "daily_session": daily_session,
+    }
+
+
+@app.post("/timer/pause/{task_id}")
+def pause_timer(
+    task_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    task = db.query(models.Task).filter(models.Task.id == task_id).first()
+    if not task or task.owner_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    crud.pause_timer(db=db, task_id=task_id)
+
+    # Проверяем, остались ли ещё запущенные задачи
+    any_running = crud.check_any_task_running(db, current_user.id)
+    if not any_running:
+        crud.pause_daily_timer(db, current_user.id)
+
+    daily_session = crud.get_today_daily_session(db, current_user.id)
+    if (
+        daily_session
+        and daily_session.is_timer_running
+        and daily_session.last_start_time
+    ):
+        elapsed = (datetime.now() - daily_session.last_start_time).total_seconds()
+        daily_session.total_time += elapsed
+
+    return {
+        "message": "Timer paused",
+        "task_id": task_id,
+        "daily_session": daily_session,
+    }
+
+
+@app.post("/timer/stop-all")
+def stop_all_timers(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    active_tasks = (
+        db.query(models.Task)
+        .filter(
+            models.Task.owner_id == current_user.id,
+            models.Task.is_timer_running == True,
+        )
+        .all()
+    )
+    stopped_count = 0
+    for task in active_tasks:
+        if crud.pause_timer(db=db, task_id=task.id):
+            stopped_count += 1
+
+    # Останавливаем daily таймер
+    crud.pause_daily_timer(db, current_user.id)
+
+    return {"message": f"Остановлено {stopped_count} таймеров"}
+
+
+# ------------------------------------------------------------
+# Task Comments
+# ------------------------------------------------------------
 @app.post("/tasks/{task_id}/comments", response_model=schemas.TaskComment)
 def create_task_comment(
     task_id: int,
@@ -286,11 +368,9 @@ def create_task_comment(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    # Проверяем, что задача принадлежит текущему пользователю
     task = db.query(models.Task).filter(models.Task.id == task_id).first()
     if not task or task.owner_id != current_user.id:
         raise HTTPException(status_code=404, detail="Task not found")
-
     return crud.create_task_comment(db=db, comment=comment, task_id=task_id)
 
 
@@ -300,11 +380,9 @@ def get_task_comments(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    # Проверяем, что задача принадлежит текущему пользователю
     task = db.query(models.Task).filter(models.Task.id == task_id).first()
     if not task or task.owner_id != current_user.id:
         raise HTTPException(status_code=404, detail="Task not found")
-
     return crud.get_task_comments(db=db, task_id=task_id)
 
 
@@ -314,24 +392,23 @@ def delete_task_comment(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    # Проверяем, что комментарий принадлежит задаче пользователя
     comment = (
         db.query(models.TaskComment).filter(models.TaskComment.id == comment_id).first()
     )
     if not comment:
         raise HTTPException(status_code=404, detail="Comment not found")
-
     task = db.query(models.Task).filter(models.Task.id == comment.task_id).first()
     if not task or task.owner_id != current_user.id:
         raise HTTPException(status_code=404, detail="Task not found")
-
     success = crud.delete_task_comment(db, comment_id=comment_id)
     if not success:
         raise HTTPException(status_code=404, detail="Comment not found")
     return {"message": "Comment deleted"}
 
 
-# Подзадачи
+# ------------------------------------------------------------
+# SubTasks
+# ------------------------------------------------------------
 @app.post("/tasks/{task_id}/subtasks", response_model=schemas.SubTask)
 def create_sub_task(
     task_id: int,
@@ -339,11 +416,9 @@ def create_sub_task(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    # Проверяем, что задача принадлежит текущему пользователю
     task = db.query(models.Task).filter(models.Task.id == task_id).first()
     if not task or task.owner_id != current_user.id:
         raise HTTPException(status_code=404, detail="Task not found")
-
     return crud.create_sub_task(db=db, sub_task=sub_task, task_id=task_id)
 
 
@@ -353,11 +428,9 @@ def get_sub_tasks(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    # Проверяем, что задача принадлежит текущему пользователю
     task = db.query(models.Task).filter(models.Task.id == task_id).first()
     if not task or task.owner_id != current_user.id:
         raise HTTPException(status_code=404, detail="Task not found")
-
     return crud.get_sub_tasks(db=db, task_id=task_id)
 
 
@@ -368,15 +441,12 @@ def update_sub_task(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    # Проверяем, что подзадача принадлежит задаче пользователя
     sub_task = db.query(models.SubTask).filter(models.SubTask.id == sub_task_id).first()
     if not sub_task:
         raise HTTPException(status_code=404, detail="Sub task not found")
-
     task = db.query(models.Task).filter(models.Task.id == sub_task.task_id).first()
     if not task or task.owner_id != current_user.id:
         raise HTTPException(status_code=404, detail="Task not found")
-
     updated_sub_task = crud.update_sub_task(
         db=db, sub_task_id=sub_task_id, sub_task_update=sub_task_update
     )
@@ -391,100 +461,21 @@ def delete_sub_task(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    # Проверяем, что подзадача принадлежит задаче пользователя
     sub_task = db.query(models.SubTask).filter(models.SubTask.id == sub_task_id).first()
     if not sub_task:
         raise HTTPException(status_code=404, detail="Sub task not found")
-
     task = db.query(models.Task).filter(models.Task.id == sub_task.task_id).first()
     if not task or task.owner_id != current_user.id:
         raise HTTPException(status_code=404, detail="Task not found")
-
     success = crud.delete_sub_task(db, sub_task_id=sub_task_id)
     if not success:
         raise HTTPException(status_code=404, detail="Sub task not found")
     return {"message": "Sub task deleted"}
 
 
-@app.get("/tasks-with-details/", response_model=List[schemas.Task])
-def read_tasks_with_details(
-    skip: int = 0,
-    limit: int = 100,
-    db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
-):
-    tasks = crud.get_tasks_by_owner(
-        db=db, owner_id=current_user.id, skip=skip, limit=limit
-    )
-
-    # Добавляем подзадачи и комментарии к каждой задаче
-    for task in tasks:
-        task.comments = crud.get_task_comments(db=db, task_id=task.id)
-        task.sub_tasks = crud.get_sub_tasks(db=db, task_id=task.id)
-
-    return tasks
-
-
-@app.post("/timer/start/{task_id}")
-def start_timer(
-    task_id: int,
-    db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
-):
-    # Проверяем, что задача принадлежит текущему пользователю
-    task = db.query(models.Task).filter(models.Task.id == task_id).first()
-    if not task or task.owner_id != current_user.id:
-        raise HTTPException(status_code=404, detail="Task not found")
-
-    time_entry = crud.start_timer(db=db, task_id=task_id)
-    return {"message": "Timer started", "time_entry": time_entry.id}
-
-
-@app.post("/timer/pause/{task_id}")
-def pause_timer(
-    task_id: int,
-    db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
-):
-    # Проверяем, что задача принадлежит текущему пользователю
-    task = db.query(models.Task).filter(models.Task.id == task_id).first()
-    if not task or task.owner_id != current_user.id:
-        raise HTTPException(status_code=404, detail="Task not found")
-
-    time_entry = crud.pause_timer(db=db, task_id=task_id)
-    if time_entry:
-        return {"message": "Timer paused"}
-    else:
-        raise HTTPException(
-            status_code=404, detail="Time entry not found or already paused"
-        )
-
-
-# Endpoint для принудительной остановки всех таймеров пользователя
-@app.post("/timer/stop-all")
-def stop_all_timers(
-    db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
-):
-    # Находим все активные задачи пользователя
-    active_tasks = (
-        db.query(models.Task)
-        .filter(
-            models.Task.owner_id == current_user.id,
-            models.Task.is_timer_running == True,
-        )
-        .all()
-    )
-
-    stopped_count = 0
-    for task in active_tasks:
-        if crud.pause_timer(db=db, task_id=task.id):
-            stopped_count += 1
-
-    return {"message": f"Остановлено {stopped_count} таймеров"}
-
-
-# Комментарии подзадач
+# ------------------------------------------------------------
+# SubTask Comments
+# ------------------------------------------------------------
 @app.post("/subtasks/{sub_task_id}/comments", response_model=schemas.SubTaskComment)
 def create_sub_task_comment(
     sub_task_id: int,
@@ -492,15 +483,12 @@ def create_sub_task_comment(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    # Проверяем, что подзадача принадлежит задаче пользователя
     sub_task = db.query(models.SubTask).filter(models.SubTask.id == sub_task_id).first()
     if not sub_task:
         raise HTTPException(status_code=404, detail="Sub task not found")
-
     task = db.query(models.Task).filter(models.Task.id == sub_task.task_id).first()
     if not task or task.owner_id != current_user.id:
         raise HTTPException(status_code=404, detail="Task not found")
-
     return crud.create_sub_task_comment(db=db, comment=comment, sub_task_id=sub_task_id)
 
 
@@ -512,15 +500,12 @@ def get_sub_task_comments(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    # Проверяем, что подзадача принадлежит задаче пользователя
     sub_task = db.query(models.SubTask).filter(models.SubTask.id == sub_task_id).first()
     if not sub_task:
         raise HTTPException(status_code=404, detail="Sub task not found")
-
     task = db.query(models.Task).filter(models.Task.id == sub_task.task_id).first()
     if not task or task.owner_id != current_user.id:
         raise HTTPException(status_code=404, detail="Task not found")
-
     return crud.get_sub_task_comments(db=db, sub_task_id=sub_task_id)
 
 
@@ -530,7 +515,6 @@ def delete_sub_task_comment(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    # Проверяем, что комментарий принадлежит подзадаче пользователя
     comment = (
         db.query(models.SubTaskComment)
         .filter(models.SubTaskComment.id == comment_id)
@@ -538,7 +522,6 @@ def delete_sub_task_comment(
     )
     if not comment:
         raise HTTPException(status_code=404, detail="Comment not found")
-
     sub_task = (
         db.query(models.SubTask)
         .filter(models.SubTask.id == comment.sub_task_id)
@@ -546,15 +529,65 @@ def delete_sub_task_comment(
     )
     if not sub_task:
         raise HTTPException(status_code=404, detail="Sub task not found")
-
     task = db.query(models.Task).filter(models.Task.id == sub_task.task_id).first()
     if not task or task.owner_id != current_user.id:
         raise HTTPException(status_code=404, detail="Task not found")
-
     success = crud.delete_sub_task_comment(db, comment_id=comment_id)
     if not success:
         raise HTTPException(status_code=404, detail="Comment not found")
     return {"message": "Comment deleted"}
+
+
+# ------------------------------------------------------------
+# Daily Work Session (новые эндпоинты)
+# ------------------------------------------------------------
+@app.get("/daily/current", response_model=Optional[schemas.DailyWorkSession])
+def get_current_daily_session(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Получить сегодняшнюю сессию (с текущим временем, если таймер запущен)."""
+    today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    session = (
+        db.query(models.DailyWorkSession)
+        .filter(
+            models.DailyWorkSession.user_id == current_user.id,
+            models.DailyWorkSession.date == today_start,
+        )
+        .first()
+    )
+    if session and session.is_timer_running and session.last_start_time:
+        # Для ответа добавим текущее время к total_time
+        elapsed = (datetime.now() - session.last_start_time).total_seconds()
+        # Создадим копию, чтобы не менять объект БД
+        session_copy = schemas.DailyWorkSession.model_validate(session)
+        session_copy.total_time = session.total_time + elapsed
+        return session_copy
+    return session
+
+
+@app.get("/daily/stats", response_model=schemas.DailyStatsResponse)
+def get_daily_stats(
+    days: int = 30,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Получить статистику за последние N дней, сегодняшний день и т.д."""
+    stats = crud.get_daily_stats(db, current_user.id, days)
+    # Отфильтруем только нужные периоды
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    week_start = datetime.now() - timedelta(days=7)
+    week_items = [s for s in stats if s["date"] >= week_start.strftime("%Y-%m-%d")]
+
+    # Выделим сегодня
+    today_item = next(
+        (s for s in stats if s["date"] == today_str),
+        {"date": today_str, "total_seconds": 0.0},
+    )
+
+    return schemas.DailyStatsResponse(
+        today=today_item, week=week_items, month=stats[-30:]  # последние 30 дней
+    )
 
 
 if __name__ == "__main__":

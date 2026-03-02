@@ -2,8 +2,13 @@
   <div id="app">
     <header class="app-header">
       <div class="container">
-        <h1>⏱️ Учёт времени </h1>
-        <p>Эффективно отслеживайте время ваших проектов</p>
+        <!-- Заголовок (таймер убран, остался только заголовок) -->
+        <div class="title-section">
+          <h1>⏱️ Учёт времени</h1>
+          <p>Эффективно отслеживайте время ваших проектов</p>
+        </div>
+
+        <!-- Навигация -->
         <nav v-if="$store.getters.isAuthenticated" class="nav">
           <router-link to="/daily-tasks" class="nav-link">📅 Ежедневные задачи</router-link>
           <router-link to="/" class="nav-link">📁 Проекты</router-link>
@@ -15,11 +20,28 @@
         </nav>
       </div>
     </header>
-    <main class="app-main">
+
+    <!-- Основной контент с двумя колонками (для авторизованных) -->
+    <div class="main-layout" v-if="$store.getters.isAuthenticated">
+      <main class="app-main">
+        <div class="container content-area">
+          <div class="content-column">
+            <router-view />
+          </div>
+          <aside class="stats-column">
+            <DailyStats />
+          </aside>
+        </div>
+      </main>
+    </div>
+
+    <!-- Для неавторизованных просто router-view -->
+    <main class="app-main" v-else>
       <div class="container">
         <router-view />
       </div>
     </main>
+
     <footer class="app-footer">
       <div class="container">
         <p>&copy; 2025 Учёт времени</p>
@@ -29,23 +51,56 @@
 </template>
 
 <script>
-import { mapActions, mapState } from 'vuex'
+import { mapActions, mapState, mapGetters } from 'vuex'
+import DailyStats from './components/DailyStats.vue'
 
 export default {
   name: 'App',
+  components: { DailyStats },
+  data() {
+    return {
+      fetchInterval: null  // интервал для обновления daily сессии (когда таймер запущен)
+    }
+  },
   computed: {
-    ...mapState(['tasks'])
+    ...mapState(['tasks']),
+    ...mapGetters(['currentDailySeconds', 'isDailyTimerRunning'])
+  },
+  watch: {
+    // При изменении статуса таймера запускаем/останавливаем интервал обновления
+    isDailyTimerRunning(newVal) {
+      if (newVal) {
+        this.startFetching()
+      } else {
+        this.stopFetching()
+      }
+    }
   },
   methods: {
-    ...mapActions(['logout', 'pauseTimer']),
+    ...mapActions(['logout', 'pauseTimer', 'fetchCurrentDailySession', 'fetchDailyStats']),
+
     async handleLogout() {
       await this.logout()
       this.$router.push('/login')
     },
-    // Останавливаем все активные таймеры при закрытии страницы
+
+    // Запуск периодического обновления daily сессии (раз в секунду)
+    startFetching() {
+      if (this.fetchInterval) clearInterval(this.fetchInterval)
+      this.fetchInterval = setInterval(() => {
+        this.fetchCurrentDailySession()
+      }, 1000)
+    },
+
+    stopFetching() {
+      if (this.fetchInterval) {
+        clearInterval(this.fetchInterval)
+        this.fetchInterval = null
+      }
+    },
+
     async stopAllActiveTimers() {
       const activeTasks = this.tasks.filter(task => task.is_timer_running)
-
       for (const task of activeTasks) {
         try {
           await this.pauseTimer(task.id)
@@ -55,33 +110,39 @@ export default {
         }
       }
     },
-    // Обработчик перед закрытием страницы
+
     handleBeforeUnload(event) {
       const activeTasks = this.tasks.filter(task => task.is_timer_running)
-
       if (activeTasks.length > 0) {
-        // Показываем предупреждение (опционально)
         event.preventDefault()
         event.returnValue = 'У вас есть активные таймеры. Они будут автоматически остановлены.'
-
-        // Отправляем запросы на остановку таймеров
-        // Используем sendBeacon для надежной отправки при закрытии страницы
         activeTasks.forEach(task => {
           const data = JSON.stringify({ task_id: task.id })
-          navigator.sendBeacon(`${process.env.VUE_APP_API_BASE_URL || 'http://localhost:8000'}/timer/pause/${task.id}`, data)
+          navigator.sendBeacon(
+            `${process.env.VUE_APP_API_BASE_URL || 'http://localhost:8000'}/timer/pause/${task.id}`,
+            data
+          )
         })
       }
     }
   },
-  mounted() {
-    // Добавляем обработчик закрытия страницы
-    window.addEventListener('beforeunload', this.handleBeforeUnload)
 
-    // Также останавливаем таймеры при размонтировании приложения
+  mounted() {
+    // Загружаем начальное состояние
+    this.fetchCurrentDailySession()
+    this.fetchDailyStats(30)
+
+    // Если таймер уже запущен (например, после логина), запускаем интервал
+    if (this.isDailyTimerRunning) {
+      this.startFetching()
+    }
+
+    window.addEventListener('beforeunload', this.handleBeforeUnload)
     window.addEventListener('unload', this.stopAllActiveTimers)
   },
+
   beforeUnmount() {
-    // Убираем обработчики при размонтировании компонента
+    this.stopFetching()
     window.removeEventListener('beforeunload', this.handleBeforeUnload)
     window.removeEventListener('unload', this.stopAllActiveTimers)
   }
@@ -101,11 +162,10 @@ body {
   color: #333;
   background-color: #f8f9fa;
   font-size: 16px;
-  /* Увеличиваем базовый размер шрифта */
 }
 
 .container {
-  max-width: 1200px;
+  max-width: 1400px;
   margin: 0 auto;
   padding: 0 20px;
 }
@@ -114,18 +174,79 @@ body {
   background: linear-gradient(135deg, #6a11cb 0%, #2575fc 100%);
   color: white;
   padding: 1rem 0;
-  text-align: center;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  position: relative;
 }
 
-.app-header h1 {
-  font-size: 2.5rem;
+.title-section {
+  text-align: center;
   margin-bottom: 0.5rem;
 }
 
-.app-main {
+.title-section h1 {
+  font-size: 2.5rem;
+  margin-bottom: 0.2rem;
+}
+
+.title-section p {
+  font-size: 1rem;
+  opacity: 0.9;
+}
+
+.nav {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.nav-link {
+  color: white;
+  text-decoration: none;
+  padding: 5px 10px;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+
+.nav-link:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.btn-logout {
+  background-color: transparent;
+  border: 1px solid white;
+  color: white;
+  padding: 5px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.btn-logout:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.main-layout {
   min-height: calc(100vh - 200px);
+}
+
+.content-area {
+  display: flex;
+  gap: 2rem;
   padding: 2rem 0;
+}
+
+.content-column {
+  flex: 1;
+  min-width: 0;
+  /* предотвращает переполнение */
+}
+
+.stats-column {
+  width: 350px;
+  flex-shrink: 0;
 }
 
 .app-footer {
@@ -135,6 +256,31 @@ body {
   padding: 1rem 0;
 }
 
+/* Адаптивность */
+@media (max-width: 1000px) {
+  .content-area {
+    flex-direction: column;
+  }
+
+  .stats-column {
+    width: 100%;
+  }
+
+  .nav {
+    position: static;
+    margin-top: 1rem;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 600px) {
+  .title-section h1 {
+    font-size: 2rem;
+  }
+}
+
+/* Остальные общие стили */
 .card {
   background: white;
   border-radius: 8px;
@@ -151,7 +297,6 @@ body {
   font-weight: 500;
   transition: all 0.2s ease;
   font-size: 18px;
-  /* Увеличиваем шрифт в кнопках */
 }
 
 .btn-primary {
@@ -200,64 +345,11 @@ body {
   border: 1px solid #ced4da;
   border-radius: 4px;
   font-size: 18px;
-  /* Увеличиваем шрифт в полях ввода */
 }
 
 .form-control:focus {
   border-color: #80bdff;
   outline: 0;
   box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
-}
-
-.timer-display {
-  font-family: 'Courier New', monospace;
-  font-size: 1.5rem;
-  font-weight: bold;
-  color: #343a40;
-}
-
-.task-active {
-  border-left: 4px solid #28a745;
-  background-color: #f8fff9;
-}
-
-/* Увеличиваем шрифт в текстовых областях */
-textarea.form-control {
-  font-size: 18px;
-  min-height: 120px;
-  /* Делаем текстовые области больше */
-}
-
-.nav {
-  position: absolute;
-  top: 20px;
-  right: 20px;
-}
-
-.nav-link {
-  color: white;
-  text-decoration: none;
-  margin-left: 15px;
-  padding: 5px 10px;
-  border-radius: 4px;
-  transition: background-color 0.2s;
-}
-
-.nav-link:hover {
-  background-color: rgba(255, 255, 255, 0.1);
-}
-
-.btn-logout {
-  background-color: transparent;
-  border: 1px solid white;
-  color: white;
-  padding: 5px 10px;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: background-color 0.2s;
-}
-
-.btn-logout:hover {
-  background-color: rgba(255, 255, 255, 0.1);
 }
 </style>

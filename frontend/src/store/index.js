@@ -11,14 +11,16 @@ export default createStore({
         projects: [],
         tasks: [],
         timeEntries: [],
-        taskComments: {}, // Новое состояние для комментариев
-        subTasks: {}, // Новое состояние для подзадач
-        subTaskComments: {} // Новое состояние для комментариев подзадач
+        taskComments: {},
+        subTasks: {},
+        subTaskComments: {},
+        // Новые состояния для daily сессии и статистики
+        dailySession: null,
+        dailyStats: null
     },
     mutations: {
         SET_TOKEN(state, token) {
             state.token = token
-            // Сохраняем токен в localStorage и куки для совместимости
             localStorage.setItem('token', token)
             Cookies.set('token', token, { expires: 30, path: '/' })
             axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
@@ -53,15 +55,12 @@ export default createStore({
                 state.tasks.splice(index, 1, updatedTask)
             }
         },
-
         UPDATE_PROJECT(state, updatedProject) {
             const index = state.projects.findIndex(p => p.id === updatedProject.id)
             if (index !== -1) {
                 state.projects.splice(index, 1, updatedProject)
             }
         },
-
-        // Новые мутации для комментариев и подзадач
         SET_TASK_COMMENTS(state, { taskId, comments }) {
             state.taskComments[taskId] = comments
         },
@@ -109,8 +108,6 @@ export default createStore({
                 task.completed_at = isCompleted ? new Date().toISOString() : null
             }
         },
-
-        // Комментарии подзадач
         SET_SUB_TASK_COMMENTS(state, { subTaskId, comments }) {
             state.subTaskComments[subTaskId] = comments;
         },
@@ -126,9 +123,15 @@ export default createStore({
                     comment => comment.id !== commentId
                 );
             }
+        },
+        // Мутации для daily сессии
+        SET_DAILY_SESSION(state, session) {
+            state.dailySession = session
+        },
+        SET_DAILY_STATS(state, stats) {
+            state.dailyStats = stats
         }
     },
-
     actions: {
         async login({ commit }, credentials) {
             try {
@@ -152,6 +155,8 @@ export default createStore({
         async logout({ commit }) {
             commit('CLEAR_TOKEN')
             commit('SET_USER', null)
+            commit('SET_DAILY_SESSION', null)
+            commit('SET_DAILY_STATS', null)
         },
         async fetchProjects({ commit }) {
             try {
@@ -193,20 +198,27 @@ export default createStore({
                 throw error
             }
         },
-
-        async startTimer({ dispatch }, taskId) {
+        async startTimer({ commit, dispatch }, taskId) {
             try {
-                await axios.post(`${API_BASE_URL}/timer/start/${taskId}`)
-                await dispatch('fetchTasks') // Refresh tasks to get updated timer status
+                const response = await axios.post(`${API_BASE_URL}/timer/start/${taskId}`)
+                await dispatch('fetchTasks')
+                if (response.data.daily_session) {
+                    commit('SET_DAILY_SESSION', response.data.daily_session)
+                }
+                await dispatch('fetchDailyStats', 30)
             } catch (error) {
                 console.error('Error starting timer:', error)
                 throw error
             }
         },
-        async pauseTimer({ dispatch }, taskId) {
+        async pauseTimer({ commit, dispatch }, taskId) {
             try {
-                await axios.post(`${API_BASE_URL}/timer/pause/${taskId}`)
+                const response = await axios.post(`${API_BASE_URL}/timer/pause/${taskId}`)
                 await dispatch('fetchTasks')
+                if (response.data.daily_session) {
+                    commit('SET_DAILY_SESSION', response.data.daily_session)
+                }
+                await dispatch('fetchDailyStats', 30)
             } catch (error) {
                 console.error('Error pausing timer:', error)
                 throw error
@@ -240,7 +252,6 @@ export default createStore({
                 throw error
             }
         },
-
         async updateProject({ commit }, { projectId, projectData }) {
             try {
                 const response = await axios.put(`${API_BASE_URL}/projects/${projectId}`, projectData)
@@ -251,8 +262,6 @@ export default createStore({
                 throw error
             }
         },
-
-        // Новые actions для комментариев и подзадач
         async fetchTaskComments({ commit }, taskId) {
             try {
                 const response = await axios.get(`${API_BASE_URL}/tasks/${taskId}/comments`)
@@ -281,8 +290,6 @@ export default createStore({
                 throw error
             }
         },
-
-        // Подзадачи
         async fetchSubTasks({ commit }, taskId) {
             try {
                 const response = await axios.get(`${API_BASE_URL}/tasks/${taskId}/subtasks`)
@@ -321,8 +328,6 @@ export default createStore({
                 throw error
             }
         },
-
-        // Обновление статуса задачи
         async updateTaskStatus({ commit }, { taskId, isCompleted }) {
             try {
                 const response = await axios.put(`${API_BASE_URL}/tasks/${taskId}`, {
@@ -335,34 +340,49 @@ export default createStore({
                 throw error
             }
         },
-
-        // Комментарии подзадач
         async fetchSubTaskComments({ commit }, subTaskId) {
             try {
-                const response = await axios.get(`${API_BASE_URL}/subtasks/${subTaskId}/comments`);
-                commit('SET_SUB_TASK_COMMENTS', { subTaskId, comments: response.data });
+                const response = await axios.get(`${API_BASE_URL}/subtasks/${subTaskId}/comments`)
+                commit('SET_SUB_TASK_COMMENTS', { subTaskId, comments: response.data })
             } catch (error) {
-                console.error('Ошибка загрузки комментариев подзадачи:', error);
-                throw error;
+                console.error('Ошибка загрузки комментариев подзадачи:', error)
+                throw error
             }
         },
         async createSubTaskComment({ commit }, { subTaskId, content }) {
             try {
-                const response = await axios.post(`${API_BASE_URL}/subtasks/${subTaskId}/comments`, { content });
-                commit('ADD_SUB_TASK_COMMENT', { subTaskId, comment: response.data });
-                return response.data;
+                const response = await axios.post(`${API_BASE_URL}/subtasks/${subTaskId}/comments`, { content })
+                commit('ADD_SUB_TASK_COMMENT', { subTaskId, comment: response.data })
+                return response.data
             } catch (error) {
-                console.error('Ошибка создания комментария подзадачи:', error);
-                throw error;
+                console.error('Ошибка создания комментария подзадачи:', error)
+                throw error
             }
         },
         async deleteSubTaskComment({ commit }, { subTaskId, commentId }) {
             try {
-                await axios.delete(`${API_BASE_URL}/subtask-comments/${commentId}`);
-                commit('REMOVE_SUB_TASK_COMMENT', { subTaskId, commentId });
+                await axios.delete(`${API_BASE_URL}/subtask-comments/${commentId}`)
+                commit('REMOVE_SUB_TASK_COMMENT', { subTaskId, commentId })
             } catch (error) {
-                console.error('Ошибка удаления комментария подзадачи:', error);
-                throw error;
+                console.error('Ошибка удаления комментария подзадачи:', error)
+                throw error
+            }
+        },
+        // Daily session actions
+        async fetchCurrentDailySession({ commit }) {
+            try {
+                const response = await axios.get(`${API_BASE_URL}/daily/current`)
+                commit('SET_DAILY_SESSION', response.data)
+            } catch (error) {
+                console.error('Ошибка загрузки daily сессии:', error)
+            }
+        },
+        async fetchDailyStats({ commit }, days = 30) {
+            try {
+                const response = await axios.get(`${API_BASE_URL}/daily/stats?days=${days}`)
+                commit('SET_DAILY_STATS', response.data)
+            } catch (error) {
+                console.error('Ошибка загрузки статистики:', error)
             }
         }
     },
@@ -375,8 +395,6 @@ export default createStore({
             const task = state.tasks.find(t => t.id === taskId)
             return task ? task.is_timer_running : false
         },
-
-        // Новые геттеры для комментариев и подзадач
         getTaskComments: (state) => (taskId) => {
             return state.taskComments[taskId] || []
         },
@@ -390,10 +408,15 @@ export default createStore({
         getTotalSubTasksCount: (state) => (taskId) => {
             return (state.subTasks[taskId] || []).length
         },
-
-        // Комментарии подзадач
         getSubTaskComments: (state) => (subTaskId) => {
-            return state.subTaskComments[subTaskId] || [];
+            return state.subTaskComments[subTaskId] || []
+        },
+        // Daily getters
+        currentDailySeconds: (state) => {
+            return state.dailySession?.total_time || 0
+        },
+        isDailyTimerRunning: (state) => {
+            return state.dailySession?.is_timer_running || false
         }
     }
 })

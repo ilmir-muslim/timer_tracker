@@ -421,9 +421,7 @@ export default {
         return {
             newTaskTitle: '',
             project: {},
-            updateInterval: null,
             loading: true,
-            debugMode: false,
             localTotalTime: 0,
             editingTask: null,
             editHours: 0,
@@ -436,7 +434,7 @@ export default {
             newTaskDueDate: '',
             newSubTaskTitles: {},
             newCommentContents: {},
-            newSubTaskCommentContents: {}, // Новое поле для комментариев подзадач
+            newSubTaskCommentContents: {},
             taskView: 'all', // 'all', 'active', 'completed'
 
             // Редактирование подзадач
@@ -551,7 +549,7 @@ export default {
             'getSubTasks',
             'getCompletedSubTasksCount',
             'getTotalSubTasksCount',
-            'getSubTaskComments' // Новый геттер для комментариев подзадач
+            'getSubTaskComments'
         ])
     },
     watch: {
@@ -587,7 +585,7 @@ export default {
             'updateSubTask',
             'deleteSubTask',
             'updateTaskStatus',
-            'fetchSubTaskComments', // Новые actions для комментариев подзадач
+            'fetchSubTaskComments',
             'createSubTaskComment',
             'deleteSubTaskComment'
         ]),
@@ -1744,13 +1742,6 @@ export default {
                 }
             }
 
-            // Обновляем задачи каждую секунду, если есть активные таймеры
-            this.updateInterval = setInterval(async () => {
-                const activeTasks = this.projectTasks.filter(task => task.is_timer_running)
-                if (activeTasks.length > 0) {
-                    await this.fetchTasks()
-                }
-            }, 1000)
         } catch (error) {
             console.error('Ошибка загрузки деталей проекта:', error)
             if (this.$toast) {
@@ -1761,13 +1752,10 @@ export default {
         }
     },
     beforeUnmount() {
-        if (this.updateInterval) {
-            clearInterval(this.updateInterval)
-        }
+
     }
 }
 </script>
-
 <style scoped>
 .project-detail {
     max-width: 900px;

@@ -1,107 +1,144 @@
-from sqlalchemy import (
-    Column,
-    Integer,
-    String,
-    DateTime,
-    ForeignKey,
-    Boolean,
-    func,
-    Float,
-    Text,
-)
-from sqlalchemy.orm import relationship
+from sqlalchemy import Integer, String, DateTime, ForeignKey, Boolean, Float, Text
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.sql import func
 from .database import Base
 
 
 class User(Base):
     __tablename__ = "users"
 
-    id = Column(Integer, primary_key=True, index=True)
-    username = Column(
-        String(50), unique=True, index=True, nullable=False, default="admin"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    username: Mapped[str] = mapped_column(
+        String(50), unique=True, index=True, nullable=False
     )
-    password = Column(String(255), nullable=False, default="admin")
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    projects = relationship("Project", back_populates="owner")
+    password: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    projects: Mapped[list["Project"]] = relationship("Project", back_populates="owner")
+    daily_sessions: Mapped[list["DailyWorkSession"]] = relationship(
+        "DailyWorkSession", back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class Project(Base):
     __tablename__ = "projects"
 
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(255), nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    tasks = relationship("Task", back_populates="project")
-    owner = relationship("User", back_populates="projects")
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    owner_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=False
+    )
+
+    tasks: Mapped[list["Task"]] = relationship("Task", back_populates="project")
+    owner: Mapped["User"] = relationship("User", back_populates="projects")
 
 
 class TaskComment(Base):
     __tablename__ = "task_comments"
 
-    id = Column(Integer, primary_key=True, index=True)
-    content = Column(Text, nullable=False)
-    task_id = Column(Integer, ForeignKey("tasks.id"))
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    task_id: Mapped[int] = mapped_column(Integer, ForeignKey("tasks.id"))
+    created_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
 
-    # Используем строку для отложенной оценки
-    task = relationship("Task", back_populates="comments")
+    task: Mapped["Task"] = relationship("Task", back_populates="comments")
 
 
 class SubTaskComment(Base):
     __tablename__ = "sub_task_comments"
 
-    id = Column(Integer, primary_key=True, index=True)
-    content = Column(Text, nullable=False)
-    sub_task_id = Column(Integer, ForeignKey("sub_tasks.id"))
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    sub_task_id: Mapped[int] = mapped_column(Integer, ForeignKey("sub_tasks.id"))
+    created_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
 
-    # Используем строку для отложенной оценки
-    sub_task = relationship("SubTask", back_populates="comments")
+    sub_task: Mapped["SubTask"] = relationship("SubTask", back_populates="comments")
 
 
 class SubTask(Base):
     __tablename__ = "sub_tasks"
 
-    id = Column(Integer, primary_key=True, index=True)
-    title = Column(String(500), nullable=False)
-    task_id = Column(Integer, ForeignKey("tasks.id"))
-    is_completed = Column(Boolean, default=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    completed_at = Column(DateTime(timezone=True), nullable=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    title: Mapped[str] = mapped_column(String(500), nullable=False)
+    task_id: Mapped[int] = mapped_column(Integer, ForeignKey("tasks.id"))
+    is_completed: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    completed_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
-    # Используем строку для отложенной оценки
-    task = relationship("Task", back_populates="sub_tasks")
-    comments = relationship("SubTaskComment", back_populates="sub_task", cascade="all, delete-orphan")
+    task: Mapped["Task"] = relationship("Task", back_populates="sub_tasks")
+    comments: Mapped[list["SubTaskComment"]] = relationship(
+        "SubTaskComment", back_populates="sub_task", cascade="all, delete-orphan"
+    )
 
 
 class Task(Base):
     __tablename__ = "tasks"
 
-    id = Column(Integer, primary_key=True, index=True)
-    title = Column(String(255), nullable=False)
-    project_id = Column(Integer, ForeignKey("projects.id"))
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    owner_id = Column(Integer, ForeignKey("users.id"))
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    project_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("projects.id"), nullable=True
+    )
+    created_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    owner_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"))
 
-    # Новые поля для трекера задач
-    is_completed = Column(Boolean, default=False)
-    completed_at = Column(DateTime(timezone=True), nullable=True)
-    priority = Column(Integer, default=1)  # 1-низкий, 2-средний, 3-высокий
-    due_date = Column(DateTime(timezone=True), nullable=True)
+    is_completed: Mapped[bool] = mapped_column(Boolean, default=False)
+    completed_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    priority: Mapped[int] = mapped_column(
+        Integer, default=1
+    )  # 1 - низкий, 2 - средний, 3 - высокий
+    due_date: Mapped[DateTime] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    # Поля для трекера времени
-    total_time = Column(Float, default=0.0)
-    is_timer_running = Column(Boolean, default=False)
-    last_start_time = Column(DateTime, nullable=True)
+    total_time: Mapped[float] = mapped_column(Float, default=0.0)
+    is_timer_running: Mapped[bool] = mapped_column(Boolean, default=False)
+    last_start_time: Mapped[DateTime] = mapped_column(DateTime, nullable=True)
 
-    project = relationship("Project", back_populates="tasks")
-    owner = relationship("User")
+    project: Mapped["Project"] = relationship("Project", back_populates="tasks")
+    owner: Mapped["User"] = relationship("User")
 
-    # Используем строки для отложенной оценки
-    comments = relationship(
+    comments: Mapped[list["TaskComment"]] = relationship(
         "TaskComment", back_populates="task", cascade="all, delete-orphan"
     )
-    sub_tasks = relationship(
+    sub_tasks: Mapped[list["SubTask"]] = relationship(
         "SubTask", back_populates="task", cascade="all, delete-orphan"
     )
+
+
+class DailyWorkSession(Base):
+    __tablename__ = "daily_work_sessions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=False
+    )
+    date: Mapped[DateTime] = mapped_column(
+        DateTime, nullable=False
+    )  # дата дня (без времени)
+    total_time: Mapped[float] = mapped_column(Float, default=0.0)  # секунд
+    is_timer_running: Mapped[bool] = mapped_column(Boolean, default=False)
+    last_start_time: Mapped[DateTime] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True), nullable=True, onupdate=func.now()
+    )
+
+    user: Mapped["User"] = relationship("User", back_populates="daily_sessions")

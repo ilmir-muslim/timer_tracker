@@ -1,5 +1,5 @@
 from pydantic import BaseModel, ConfigDict
-from datetime import datetime
+from datetime import datetime, date
 from typing import Optional, List
 from fastapi.security import OAuth2PasswordBearer
 
@@ -140,3 +140,41 @@ class Token(BaseModel):
 class LoginRequest(BaseModel):
     username: str
     password: str
+
+
+# ---- Daily Work Session ----
+class DailyWorkSessionBase(BaseModel):
+    date: datetime
+    total_time: float
+
+
+class DailyWorkSessionCreate(BaseModel):
+    pass
+
+
+class DailyWorkSessionUpdate(BaseModel):
+    total_time: Optional[float] = None
+    is_timer_running: Optional[bool] = None
+    last_start_time: Optional[datetime] = None
+
+
+class DailyWorkSession(DailyWorkSessionBase):
+    id: int
+    user_id: int
+    is_timer_running: bool
+    last_start_time: Optional[datetime] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class DailyStatsItem(BaseModel):
+    date: str  # YYYY-MM-DD
+    total_seconds: float
+
+
+class DailyStatsResponse(BaseModel):
+    today: DailyStatsItem
+    week: List[DailyStatsItem]
+    month: List[DailyStatsItem]

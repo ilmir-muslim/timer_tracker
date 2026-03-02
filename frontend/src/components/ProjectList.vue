@@ -1,6 +1,6 @@
 <template>
     <div class="project-list">
-        <!-- Обернули заголовок в карточку с градиентным фоном как в ProjectDetail -->
+        <!-- Заголовок с градиентом -->
         <div class="header-card">
             <div class="header-content">
                 <h2>Мои проекты</h2>
@@ -8,6 +8,7 @@
             </div>
         </div>
 
+        <!-- Форма создания проекта -->
         <div class="card">
             <h3>Создать новый проект</h3>
             <div class="project-form">
@@ -22,23 +23,22 @@
             </div>
         </div>
 
-
+        <!-- Пустое состояние -->
         <div v-if="projects.length === 0" class="card empty-state">
             <div class="empty-icon">📁</div>
             <h3>Пока нет проектов</h3>
             <p>Создайте первый проект чтобы начать</p>
         </div>
 
-        <div v-else>
-            <div class="projects-grid">
-                <div v-for="project in projects" :key="project.id" class="project-card card"
-                    @click="$router.push(`/project/${project.id}`)">
-                    <div class="project-header">
-                        <h3>{{ project.name }}</h3>
-                        <span class="project-time">{{ formatTime(project.total_time) }}</span>
-                    </div>
-                    <p class="project-created">Создан: {{ formatDate(project.created_at) }}</p>
+        <!-- Список проектов -->
+        <div v-else class="projects-grid">
+            <div v-for="project in projects" :key="project.id" class="project-card card"
+                @click="$router.push(`/project/${project.id}`)">
+                <div class="project-header">
+                    <h3>{{ project.name }}</h3>
+                    <span class="project-time">{{ formatTime(project.total_time) }}</span>
                 </div>
+                <p class="project-created">Создан: {{ formatDate(project.created_at) }}</p>
             </div>
         </div>
     </div>
@@ -62,20 +62,15 @@ export default {
         async createProject() {
             if (this.newProjectName.trim()) {
                 try {
-                    await this.$store.dispatch('createProject', { name: this.newProjectName })
+                    await this.createProject({ name: this.newProjectName })
                     this.newProjectName = ''
-
                     if (this.$toast) {
                         this.$toast.success('Проект успешно создан!')
-                    } else {
-                        console.log('Проект успешно создан!')
                     }
                 } catch (error) {
                     console.error('Ошибка при создании проекта:', error)
                     if (this.$toast) {
                         this.$toast.error('Не удалось создать проект')
-                    } else {
-                        console.error('Не удалось создать проект')
                     }
                 }
             }
@@ -100,8 +95,6 @@ export default {
             console.error('Ошибка загрузки проектов:', error)
             if (this.$toast) {
                 this.$toast.error('Не удалось загрузить проекты')
-            } else {
-                console.error('Не удалось загрузить проекты')
             }
         }
     }
@@ -115,7 +108,6 @@ export default {
     padding: 0 15px;
 }
 
-/* Новые стили для заголовка с градиентным фоном */
 .header-card {
     background: linear-gradient(135deg, #6a11cb 0%, #2575fc 100%);
     border-radius: 16px;
@@ -139,12 +131,10 @@ export default {
     margin: 0;
 }
 
-/* Выравнивание формы */
 .project-form {
     display: flex;
     gap: 1rem;
     align-items: center;
-    /* Изменили на center для вертикального выравнивания */
 }
 
 .input-wrapper {
@@ -162,10 +152,8 @@ export default {
     box-sizing: border-box;
 }
 
-/* Сделали кнопку темнее и выровняли */
 .add-project-btn {
     background-color: #0056b3;
-    /* Более темный синий */
     border-color: #004999;
     padding: 15px 25px;
     font-size: 20px;
@@ -182,15 +170,8 @@ export default {
 
 .add-project-btn:hover:not(:disabled) {
     background-color: #004999;
-    border-color: #003d82;
     transform: translateY(-2px);
     box-shadow: 0 4px 12px rgba(0, 123, 255, 0.3);
-}
-
-.add-project-btn:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-    transform: none;
 }
 
 .btn-icon {
@@ -199,20 +180,6 @@ export default {
     font-size: 20px;
 }
 
-/* Адаптивность для мобильных */
-@media (max-width: 768px) {
-    .project-form {
-        flex-direction: column;
-        align-items: stretch;
-        gap: 1.2rem;
-    }
-
-    .add-project-btn {
-        width: 100%;
-    }
-}
-
-/* Остальные стили без изменений */
 .empty-state {
     text-align: center;
     padding: 3.5rem;
@@ -286,19 +253,25 @@ export default {
     font-size: 1.1rem;
 }
 
+/* Адаптивность */
 @media (max-width: 768px) {
+    .project-form {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 1.2rem;
+    }
+
+    .add-project-btn {
+        width: 100%;
+    }
+
     .projects-grid {
         grid-template-columns: 1fr;
-        gap: 1.5rem;
     }
 
     .project-header {
         flex-direction: column;
         gap: 0.8rem;
-    }
-
-    .project-header h3 {
-        margin-right: 0;
     }
 
     .header-content h2 {
