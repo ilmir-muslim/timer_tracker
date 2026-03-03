@@ -128,7 +128,7 @@ export default {
     },
 
     async stopAllActiveTimers() {
-      const activeTasks = this.tasks.filter(task => task.is_timer_running)
+      const activeTasks = this.$store.state.tasks.filter(task => task.is_timer_running)
       for (const task of activeTasks) {
         try {
           await this.pauseTimer(task.id)
@@ -140,7 +140,7 @@ export default {
     },
 
     handleBeforeUnload(event) {
-      const activeTasks = this.tasks.filter(task => task.is_timer_running)
+      const activeTasks = this.$store.state.tasks.filter(task => task.is_timer_running)
       if (activeTasks.length > 0) {
         event.preventDefault()
         event.returnValue = 'У вас есть активные таймеры. Они будут автоматически остановлены.'
@@ -166,10 +166,19 @@ export default {
     async updateRate() {
       try {
         await this.updateDefaultRate(this.newRate)
-        this.$toast.success('Ставка обновлена')
+        if (this.$toast) {
+          this.$toast.success('Ставка обновлена')
+        } else {
+          alert('Ставка успешно обновлена')
+        }
         this.closeRateModal()
       } catch (error) {
-        this.$toast.error('Не удалось обновить ставку')
+        console.error('Ошибка обновления ставки:', error)
+        if (this.$toast) {
+          this.$toast.error('Не удалось обновить ставку')
+        } else {
+          alert('Не удалось обновить ставку')
+        }
       }
     }
   },
@@ -193,6 +202,7 @@ export default {
   }
 }
 </script>
+
 
 <style>
 * {
