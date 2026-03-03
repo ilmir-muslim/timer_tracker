@@ -131,6 +131,28 @@ def login(login_data: schemas.LoginRequest, db: Session = Depends(get_db)):
 
 
 # ------------------------------------------------------------
+# Users
+# ------------------------------------------------------------
+@app.get("/users/me", response_model=schemas.User)
+def read_current_user(current_user: models.User = Depends(get_current_user)):
+    return current_user
+
+
+@app.patch("/users/me/rate")
+def update_default_rate(
+    rate_data: schemas.UpdateRateRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    current_user.default_hourly_rate = rate_data.default_hourly_rate
+    db.commit()
+    return {
+        "message": "Rate updated",
+        "default_hourly_rate": current_user.default_hourly_rate,
+    }
+
+
+# ------------------------------------------------------------
 # Projects
 # ------------------------------------------------------------
 @app.post("/projects/", response_model=schemas.Project)
@@ -588,6 +610,19 @@ def get_daily_stats(
     return schemas.DailyStatsResponse(
         today=today_item, week=week_items, month=stats[-30:]  # последние 30 дней
     )
+
+
+# ------------------------------------------------------------
+# Earnings
+# ------------------------------------------------------------
+@app.get("/earnings/summary", response_model=schemas.EarningsSummaryResponse)
+def get_earnings_summary(
+    db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)
+):
+    summary = crud.get_user_earnings_summary(db, current_user.id)
+    if not summary:
+        raise HTTPException(status_code=404, detail="User not found")
+    return summary
 
 
 if __name__ == "__main__":

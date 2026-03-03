@@ -11,17 +11,20 @@ class ProjectBase(BaseModel):
 
 
 class ProjectCreate(ProjectBase):
-    pass
+    hourly_rate: Optional[float] = None
 
 
 class ProjectUpdate(BaseModel):
     name: Optional[str] = None
+    hourly_rate: Optional[float] = None
 
 
 class Project(ProjectBase):
     id: int
     created_at: datetime
     total_time: Optional[float] = 0.0
+    hourly_rate: float
+    earned_amount: Optional[float] = 0.0
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -128,6 +131,7 @@ class UserCreate(UserBase):
 class User(UserBase):
     id: int
     created_at: datetime
+    default_hourly_rate: float = 0.0
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -178,3 +182,14 @@ class DailyStatsResponse(BaseModel):
     today: DailyStatsItem
     week: List[DailyStatsItem]
     month: List[DailyStatsItem]
+
+
+# ---- Earnings ----
+class EarningsSummaryResponse(BaseModel):
+    total_earned: float
+    months_since_registration: int
+    average_monthly: float
+
+
+class UpdateRateRequest(BaseModel):
+    default_hourly_rate: float

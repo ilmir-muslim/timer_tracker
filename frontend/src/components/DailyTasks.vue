@@ -333,22 +333,10 @@ export default {
         sortedTasks() {
             return [...this.taskTrackerTasks].sort((a, b) => {
                 if (a.is_completed !== b.is_completed) {
-                    return a.is_completed ? 1 : -1
+                    return a.is_completed ? 1 : -1;
                 }
-
-                const aDate = a.due_date ? new Date(a.due_date) : new Date('9999-12-31')
-                const bDate = b.due_date ? new Date(b.due_date) : new Date('9999-12-31')
-
-                if (aDate.getTime() !== bDate.getTime()) {
-                    return aDate - bDate
-                }
-
-                if (a.priority !== b.priority) {
-                    return a.priority - b.priority
-                }
-
-                return new Date(b.created_at) - new Date(a.created_at)
-            })
+                return new Date(b.created_at) - new Date(a.created_at);
+            });
         },
 
         totalTasks() {

@@ -38,6 +38,19 @@
                         <button @click="cancelEditingProjectName" class="btn btn-secondary btn-sm">❌</button>
                     </div>
                 </div>
+
+                <!-- Блок заработка проекта -->
+                <div class="project-earnings">
+                    <div class="earnings-item">
+                        <span class="label">Ставка:</span>
+                        <span class="value">{{ project.hourly_rate }} ₽/час</span>
+                    </div>
+                    <div class="earnings-item">
+                        <span class="label">Заработано:</span>
+                        <span class="value">{{ formatMoney(project.earned_amount) }}</span>
+                    </div>
+                </div>
+
                 <div class="total-time">
                     <span class="label">Общее время проекта:</span>
                     <span class="time">{{ formatTime(localTotalTime) }}</span>
@@ -99,7 +112,7 @@
                 </div>
             </div>
 
-            <div v-if="projectTasks.length === 0" class="card empty-state">
+            <div v-if="sortedTimerTasks.length === 0" class="card empty-state">
                 <div class="empty-icon">📝</div>
                 <h3>Пока нет задач</h3>
                 <p>Добавьте первую задачу для отслеживания времени</p>
@@ -113,12 +126,12 @@
                     </div>
                 </div>
                 <div class="tasks-list">
-                    <div v-for="task in projectTasks" :key="task.id" class="task-item card"
+                    <div v-for="task in sortedTimerTasks" :key="task.id" class="task-item card"
                         :class="{ 'task-active': task.is_timer_running }">
                         <div class="task-content">
                             <div class="task-header">
                                 <h4>{{ task.title }}</h4>
-                                <span class="task-time">{{ formatTime(task.total_time) }}</span>
+                                <span class="task-time">{{ formatTime(task.live_total_time) }}</span>
                             </div>
 
                             <div class="task-controls">
@@ -174,7 +187,7 @@
                         ➕ Добавить задачу
                     </button>
                 </div>
-            </div>  
+            </div>
             <!-- Фильтры задач -->
             <div class="task-filters card">
                 <button @click="taskView = 'all'" :class="['filter-btn', { active: taskView === 'all' }]">
@@ -255,23 +268,25 @@
                                 @blur="saveSubTaskEdit(task.id, subTask.id)"
                                 @keyup.enter="saveSubTaskEdit(task.id, subTask.id)"
                                 @keyup.escape="cancelSubTaskEdit(subTask.id)" class="subtask-edit-input" type="text">
-                            
+
                             <!-- Комментарии подзадачи -->
                             <div class="subtask-comments">
-                                <div v-for="comment in getSubTaskComments(subTask.id)" :key="comment.id" class="subtask-comment">
+                                <div v-for="comment in getSubTaskComments(subTask.id)" :key="comment.id"
+                                    class="subtask-comment">
                                     <div class="comment-content">
                                         {{ comment.content }}
                                     </div>
                                     <div class="comment-meta">
                                         <span class="comment-date">{{ formatDate(comment.created_at) }}</span>
-                                        <button @click="deleteSubTaskComment(subTask.id, comment.id)" class="btn btn-sm btn-danger">
+                                        <button @click="deleteSubTaskComment(subTask.id, comment.id)"
+                                            class="btn btn-sm btn-danger">
                                             🗑️
                                         </button>
                                     </div>
                                 </div>
-                                
+
                                 <div class="add-subtask-comment">
-                                    <textarea v-model="newSubTaskCommentContents[subTask.id]" 
+                                    <textarea v-model="newSubTaskCommentContents[subTask.id]"
                                         @keyup.ctrl.enter="addSubTaskComment(subTask.id)"
                                         placeholder="Комментарий к подзадаче (Ctrl+Enter для отправки)..."
                                         class="form-control subtask-comment-input" rows="2"></textarea>
@@ -280,7 +295,7 @@
                                     </button>
                                 </div>
                             </div>
-                            
+
                             <div class="subtask-actions">
                                 <button v-if="!editingSubTasks[subTask.id]" @click="startEditingSubTask(subTask)"
                                     class="btn btn-sm btn-edit">
@@ -427,6 +442,7 @@ export default {
             editHours: 0,
             editMinutes: 0,
             editSeconds: 0,
+            now: Date.now(), // для живого времени
 
             // Новые данные для трекера задач
             activeTab: 'timer', // 'timer' или 'tasks'
@@ -447,20 +463,64 @@ export default {
 
             // Редактирование проекта
             editingProjectName: '',
-            isEditingProject: false
+            isEditingProject: false,
+
+            // Интервал для обновления времени
+            timerInterval: null
         }
     },
     computed: {
         ...mapState(['projects', 'tasks']),
-        ...mapGetters(['getTasksByProjectId']),
+        ...mapGetters([
+            'getTasksByProjectId',
+            'getTaskComments',
+            'getSubTasks',
+            'getCompletedSubTasksCount',
+            'getTotalSubTasksCount',
+            'getSubTaskComments'
+        ]),
         projectId() {
             return parseInt(this.$route.params.id)
         },
         projectTasks() {
             return this.getTasksByProjectId(this.projectId)
         },
+        // Задачи с живым временем для трекера времени
+        tasksWithLiveTime() {
+            return this.projectTasks.map(task => {
+                let total = task.total_time || 0;
+                if (task.is_timer_running && task.last_start_time) {
+                    const elapsed = (this.now - new Date(task.last_start_time).getTime()) / 1000;
+                    total += elapsed;
+                }
+                return { ...task, live_total_time: total };
+            });
+        },
+        // Сортированные задачи для трекера времени (новые сверху)
+        sortedTimerTasks() {
+            return [...this.tasksWithLiveTime].sort((a, b) =>
+                new Date(b.created_at) - new Date(a.created_at)
+            );
+        },
+        // Сортированные задачи для трекера задач (с учётом фильтра)
+        taskTrackerTasks() {
+            return this.projectTasks.filter(task => {
+                if (this.taskView === 'active') return !task.is_completed
+                if (this.taskView === 'completed') return task.is_completed
+                return true
+            })
+        },
+        sortedTasks() {
+            return [...this.taskTrackerTasks].sort((a, b) => {
+                // Сначала незавершенные, затем завершенные
+                if (a.is_completed !== b.is_completed) {
+                    return a.is_completed ? 1 : -1
+                }
+                // Затем по убыванию даты создания (новые сверху)
+                return new Date(b.created_at) - new Date(a.created_at)
+            })
+        },
 
-        // Новые computed для учета подзадач в прогрессе
         totalSubTasks() {
             let total = 0
             this.projectTasks.forEach(task => {
@@ -477,7 +537,6 @@ export default {
             return completed
         },
 
-        // Общий прогресс с учетом подзадач
         overallCompletionRate() {
             const totalItems = this.totalTasks + this.totalSubTasks
             const completedItems = this.completedTasks + this.completedSubTasks
@@ -493,64 +552,12 @@ export default {
         totalEditSeconds() {
             return this.editHours * 3600 + this.editMinutes * 60 + this.editSeconds
         },
-
-        // Новые computed для трекера задач
-        taskTrackerTasks() {
-            return this.projectTasks.filter(task => {
-                if (this.taskView === 'active') return !task.is_completed
-                if (this.taskView === 'completed') return task.is_completed
-                return true
-            })
-        },
-
-        // Сортировка задач по дате и приоритету
-        sortedTasks() {
-            return [...this.taskTrackerTasks].sort((a, b) => {
-                // Сначала незавершенные, затем завершенные
-                if (a.is_completed !== b.is_completed) {
-                    return a.is_completed ? 1 : -1
-                }
-
-                // Затем по дате выполнения (ближайшие сверху)
-                const aDate = a.due_date ? new Date(a.due_date) : new Date('9999-12-31')
-                const bDate = b.due_date ? new Date(b.due_date) : new Date('9999-12-31')
-
-                if (aDate.getTime() !== bDate.getTime()) {
-                    return aDate - bDate
-                }
-
-                // Затем по приоритету (высокий сначала)
-                if (a.priority !== b.priority) {
-                    return a.priority - b.priority
-                }
-
-                // Затем по дате создания (новые сначала)
-                return new Date(b.created_at) - new Date(a.created_at)
-            })
-        },
-
-        // Статистика
         totalTasks() {
             return this.projectTasks.length
         },
         completedTasks() {
             return this.projectTasks.filter(task => task.is_completed).length
         },
-        pendingTasks() {
-            return this.totalTasks - this.completedTasks
-        },
-        completionRate() {
-            return this.totalTasks > 0 ? Math.round((this.completedTasks / this.totalTasks) * 100) : 0
-        },
-
-        // Геттеры из store
-        ...mapGetters([
-            'getTaskComments',
-            'getSubTasks',
-            'getCompletedSubTasksCount',
-            'getTotalSubTasksCount',
-            'getSubTaskComments'
-        ])
     },
     watch: {
         projectTasks: {
@@ -590,7 +597,7 @@ export default {
             'deleteSubTaskComment'
         ]),
 
-        // Новые методы для редактирования названия проекта
+        // Редактирование названия проекта
         startEditingProjectName() {
             this.editingProjectName = this.project.name
             this.isEditingProject = true
@@ -637,7 +644,6 @@ export default {
                     if (this.activeTab === 'tasks') {
                         taskData.priority = parseInt(this.newTaskPriority)
                         if (this.newTaskDueDate) {
-                            // Преобразуем дату в правильный формат для бэкенда
                             taskData.due_date = this.formatDateForBackend(this.newTaskDueDate)
                         }
                     }
@@ -664,6 +670,9 @@ export default {
             const minutes = Math.floor((seconds % 3600) / 60)
             const secs = Math.floor(seconds % 60)
             return `${hours}ч ${minutes}м ${secs}с`
+        },
+        formatMoney(amount) {
+            return (amount || 0).toFixed(2) + ' ₽';
         },
         async startTaskTimer(taskId) {
             try {
@@ -696,7 +705,6 @@ export default {
 
             if (confirm(`Остановить все активные таймеры (${this.activeTimersCount})?`)) {
                 try {
-                    // Останавливаем каждый активный таймер
                     const activeTasks = this.projectTasks.filter(task => task.is_timer_running)
                     for (const task of activeTasks) {
                         await this.pauseTimer(task.id)
@@ -793,7 +801,6 @@ export default {
         },
         openEditModal(task) {
             this.editingTask = { ...task }
-            // Конвертируем секунды в часы, минуты, секунды
             const totalSeconds = task.total_time || 0
             this.editHours = Math.floor(totalSeconds / 3600)
             this.editMinutes = Math.floor((totalSeconds % 3600) / 60)
@@ -822,7 +829,7 @@ export default {
                 }
 
                 this.closeEditModal()
-                await this.fetchTasks() // Обновляем список задач
+                await this.fetchTasks()
             } catch (error) {
                 console.error('Ошибка обновления задачи:', error)
                 if (this.$toast) {
@@ -831,7 +838,7 @@ export default {
             }
         },
 
-        // Новые методы для трекера задач
+        // Методы для трекера задач
         getPriorityLabel(priority) {
             const labels = {
                 1: '🔴 Высокий',
@@ -904,7 +911,6 @@ export default {
             }
         },
 
-        // Исправленные методы для Vue 3 (без $set)
         startEditingSubTask(subTask) {
             this.editingSubTasks = {
                 ...this.editingSubTasks,
@@ -930,7 +936,6 @@ export default {
                     subTaskData: { title }
                 })
 
-                // Создаем новые объекты без удаляемых свойств
                 const newEditingSubTasks = { ...this.editingSubTasks }
                 delete newEditingSubTasks[subTaskId]
                 this.editingSubTasks = newEditingSubTasks
@@ -951,7 +956,6 @@ export default {
         },
 
         cancelSubTaskEdit(subTaskId) {
-            // Создаем новые объекты без удаляемых свойств
             const newEditingSubTasks = { ...this.editingSubTasks }
             delete newEditingSubTasks[subTaskId]
             this.editingSubTasks = newEditingSubTasks
@@ -995,7 +999,6 @@ export default {
             }
         },
 
-        // Новые методы для комментариев подзадач
         async addSubTaskComment(subTaskId) {
             const content = this.newSubTaskCommentContents[subTaskId]?.trim();
             if (!content) return;
@@ -1030,38 +1033,16 @@ export default {
             }
         },
 
-        // Вспомогательные методы для комментариев подзадач в дейлике
-        getSubTaskCommentsForDate(subTaskId, date) {
-            const comments = this.getSubTaskComments(subTaskId);
-            return comments.filter(comment => {
-                const commentDate = new Date(comment.created_at);
-                return commentDate.toDateString() === date.toDateString();
-            });
-        },
-
-        getRecentSubTaskComments(subTaskId, days = 2) {
-            const comments = this.getSubTaskComments(subTaskId);
-            const cutoffDate = new Date();
-            cutoffDate.setDate(cutoffDate.getDate() - days);
-
-            return comments.filter(comment => {
-                const commentDate = new Date(comment.created_at);
-                return commentDate >= cutoffDate;
-            });
-        },
-
         getSubTasksProgress(taskId) {
             const total = this.getTotalSubTasksCount(taskId)
             const completed = this.getCompletedSubTasksCount(taskId)
             return total > 0 ? Math.round((completed / total) * 100) : 0
         },
 
-        // Редактирование задачи с правильной обработкой дат
         openEditTaskModal(task) {
             this.editingTaskData = {
                 ...task,
                 priority: task.priority || 2,
-                // Правильно преобразуем дату для input type="date"
                 due_date: task.due_date ? this.formatDateForInput(task.due_date) : ''
             }
             this.editingTaskModal = true
@@ -1084,7 +1065,6 @@ export default {
                 if (this.editingTaskData.due_date) {
                     taskData.due_date = this.formatDateForBackend(this.editingTaskData.due_date)
                 } else {
-                    // Если дата удалена, отправляем null
                     taskData.due_date = null
                 }
 
@@ -1107,100 +1087,24 @@ export default {
             }
         },
 
-        // Вспомогательные методы для работы с датами
         formatDateForInput(dateString) {
             if (!dateString) return ''
             const date = new Date(dateString)
-            // Корректируем дату для правильного отображения в input type="date"
             const localDate = new Date(date.getTime() - (date.getTimezoneOffset() * 60000))
             return localDate.toISOString().split('T')[0]
         },
 
         formatDateForBackend(dateString) {
             if (!dateString) return null
-            // Преобразуем дату из формата input в ISO строку
             const date = new Date(dateString)
             return date.toISOString()
         },
 
-        // Метод для получения даты вчера (игнорируя выходные)
-        getYesterdayDate() {
-            const today = new Date();
-            const yesterday = new Date(today);
-            yesterday.setDate(today.getDate() - 1);
-
-            // Если вчера была суббота (6) или воскресенье (0), берем пятницу
-            if (yesterday.getDay() === 0) { // Воскресенье
-                yesterday.setDate(today.getDate() - 2);
-            } else if (yesterday.getDay() === 6) { // Суббота
-                yesterday.setDate(today.getDate() - 1);
-            }
-
-            return yesterday;
+        formatDate(dateString) {
+            if (!dateString) return ''
+            return new Date(dateString).toLocaleDateString('ru-RU')
         },
 
-        // Метод для форматирования даты в читаемый вид
-        formatDateForReport(date) {
-            return date.toLocaleDateString('ru-RU', {
-                weekday: 'long',
-                year: 'numeric',
-                month: 'long',
-                day: 'numeric'
-            });
-        },
-
-        // Метод для получения дат за которые нужно отчитаться (рабочие дни + выходные если работали)
-        getReportDates() {
-            const today = new Date();
-            const dayOfWeek = today.getDay(); // 0 - воскресенье, 1 - понедельник, etc
-
-            // Если сегодня понедельник (1), показываем пятницу, субботу и воскресенье
-            if (dayOfWeek === 1) {
-                const friday = new Date(today);
-                friday.setDate(today.getDate() - 3);
-                const saturday = new Date(today);
-                saturday.setDate(today.getDate() - 2);
-                const sunday = new Date(today);
-                sunday.setDate(today.getDate() - 1);
-                return {
-                    yesterday: friday, // Показываем как "вчера" пятницу
-                    additionalDays: [saturday, sunday], // Дополнительные дни (выходные)
-                    isWeekendIncluded: true
-                };
-            }
-
-            // Если сегодня воскресенье (0) или суббота (6) - работа в выходные
-            if (dayOfWeek === 0 || dayOfWeek === 6) {
-                const yesterday = new Date(today);
-                yesterday.setDate(today.getDate() - 1);
-                return {
-                    yesterday,
-                    additionalDays: [],
-                    isWeekendIncluded: true
-                };
-            }
-
-            // Обычный рабочий день
-            const yesterday = new Date(today);
-            yesterday.setDate(today.getDate() - 1);
-
-            // Если вчера была пятница (5), включаем информацию о предстоящих выходных
-            if (yesterday.getDay() === 5) {
-                return {
-                    yesterday,
-                    additionalDays: [],
-                    isWeekendWarning: true
-                };
-            }
-
-            return {
-                yesterday,
-                additionalDays: [],
-                isWeekendIncluded: false
-            };
-        },
-
-        // МЕТОД ГЕНЕРАЦИИ ДЕЙЛИКА С КОММЕНТАРИЯМИ ПОДЗАДАЧ
         async generateDailyReport() {
             try {
                 const today = new Date();
@@ -1210,24 +1114,21 @@ export default {
                 let report = `📅 Дейлик ${this.formatDateForReport(today)}\n`;
                 report += `📋 Проект: ${this.project.name}\n\n`;
 
-                // Раздел "СДЕЛАЛ ВЧЕРА"
+                // СДЕЛАЛ ВЧЕРА
                 report += `✅ СДЕЛАЛ ВЧЕРА (${this.formatDateForReport(yesterday)}):\n`;
 
                 let hasYesterdayProgress = false;
 
-                // Проходим по всем задачам проекта
                 for (const task of this.projectTasks) {
                     const subTasks = this.getSubTasks(task.id);
                     let hasTaskProgress = false;
                     let taskReport = '';
 
-                    // Проверяем завершенные подзадачи за вчера
                     const completedSubTasksYesterday = subTasks.filter(subTask =>
                         subTask.completed_at &&
                         new Date(subTask.completed_at).toDateString() === yesterday.toDateString()
                     );
 
-                    // Если есть завершенные подзадачи вчера
                     if (completedSubTasksYesterday.length > 0) {
                         hasYesterdayProgress = true;
                         hasTaskProgress = true;
@@ -1236,7 +1137,6 @@ export default {
                         completedSubTasksYesterday.forEach(subTask => {
                             taskReport += `  └─ ✅ ${subTask.title}\n`;
 
-                            // ВЫВОДИМ ВСЕ КОММЕНТАРИИ ПОДЗАДАЧИ БЕЗ ФИЛЬТРАЦИИ ПО ДАТЕ
                             const subTaskComments = this.getSubTaskComments(subTask.id);
                             if (subTaskComments.length > 0) {
                                 taskReport += `    💬 Комментарии к подзадаче:\n`;
@@ -1246,7 +1146,6 @@ export default {
                             }
                         });
 
-                        // ВЫВОДИМ ВСЕ КОММЕНТАРИИ ЗАДАЧИ БЕЗ ФИЛЬТРАЦИИ ПО ДАТЕ
                         const taskComments = this.getTaskComments(task.id);
                         if (taskComments.length > 0) {
                             taskReport += `  💬 Комментарии к задаче:\n`;
@@ -1258,14 +1157,11 @@ export default {
                         taskReport += '\n';
                     }
 
-                    // Проверяем завершенные задачи за вчера
                     if (task.completed_at && new Date(task.completed_at).toDateString() === yesterday.toDateString()) {
                         hasYesterdayProgress = true;
-                        // Если задача уже была выведена с подзадачами, не дублируем
                         if (!hasTaskProgress) {
                             taskReport += `- ${task.title}\n`;
 
-                            // ВЫВОДИМ ВСЕ КОММЕНТАРИИ ЗАДАЧИ БЕЗ ФИЛЬТРАЦИИ ПО ДАТЕ
                             const taskComments = this.getTaskComments(task.id);
                             if (taskComments.length > 0) {
                                 taskComments.forEach(comment => {
@@ -1283,14 +1179,13 @@ export default {
                     report += "- Не было выполненных задач\n";
                 }
 
-                // Раздел "ДЕЛАЮ СЕГОДНЯ"
+                // ДЕЛАЮ СЕГОДНЯ
                 report += `\n🎯 ДЕЛАЮ СЕГОДНЯ (${this.formatDateForReport(today)}):\n`;
 
-                // Берем незавершенные задачи с высоким приоритетом или с сегодняшним сроком
                 const todayTasks = this.sortedTasks.filter(task =>
                     !task.is_completed &&
                     (task.priority === 1 || (task.due_date && this.isDueToday(task.due_date)))
-                ).slice(0, 5); // Ограничиваем количество
+                ).slice(0, 5);
 
                 if (todayTasks.length === 0) {
                     report += "- Нет активных задач\n";
@@ -1303,7 +1198,6 @@ export default {
                             new Date(subTask.completed_at).toDateString() === yesterday.toDateString()
                         );
 
-                        // Проверяем, есть ли вчерашний прогресс по этой задаче
                         const hasYesterdayProgress = completedSubTasksYesterday.length > 0 ||
                             (task.completed_at && new Date(task.completed_at).toDateString() === yesterday.toDateString());
 
@@ -1320,7 +1214,6 @@ export default {
                             });
                         }
 
-                        // ВЫВОДИМ ВСЕ КОММЕНТАРИИ ЗАДАЧИ БЕЗ ФИЛЬТРАЦИИ ПО ДАТЕ
                         const taskComments = this.getTaskComments(task.id);
                         if (taskComments.length > 0) {
                             report += `  💬 Комментарии к задаче:\n`;
@@ -1329,7 +1222,6 @@ export default {
                             });
                         }
 
-                        // Информация о приоритете и сроке (только для новых задач)
                         if (!hasYesterdayProgress) {
                             report += `  └─ Приоритет: ${this.getPriorityLabel(task.priority)}\n`;
 
@@ -1358,48 +1250,15 @@ export default {
             }
         },
 
-        // Исправленный метод получения задач на сегодня
-        getTodayTasks(yesterdayProgress) {
-            const todayTasks = [];
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
-
-            // 1. В первую очередь добавляем задачи, которые не доделали вчера
-            yesterdayProgress.forEach(item => {
-                if (item.type === 'completed_subtasks') {
-                    const task = this.projectTasks.find(t => t.id === item.taskId);
-                    if (task && !task.is_completed) {
-                        todayTasks.push({
-                            ...task,
-                            isContinuation: true
-                        });
-                    }
-                }
+        formatDateForReport(date) {
+            return date.toLocaleDateString('ru-RU', {
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
             });
-
-            // 2. Добавляем срочные задачи на сегодня (максимум 2-3, чтобы не перегружать)
-            const urgentTasks = this.sortedTasks
-                .filter(task => {
-                    if (task.is_completed) return false;
-                    if (todayTasks.find(t => t.id === task.id)) return false; // Не дублируем
-
-                    // Включаем задачи с высоким приоритетом ИЛИ сроком на сегодня
-                    return task.priority === 1 ||
-                        (task.due_date && this.isDueToday(task.due_date));
-                })
-                .slice(0, 3); // Ограничиваем количество
-
-            urgentTasks.forEach(task => {
-                todayTasks.push({
-                    ...task,
-                    isContinuation: false
-                });
-            });
-
-            return todayTasks;
         },
 
-        // Вспомогательный метод для проверки срока сегодня
         isDueToday(dueDate) {
             const today = new Date();
             today.setHours(0, 0, 0, 0);
@@ -1410,70 +1269,6 @@ export default {
             return due.getTime() === today.getTime();
         },
 
-        // Исправленный метод получения вчерашнего прогресса
-        getYesterdayProgress(yesterday) {
-            const progress = [];
-            const processedTasks = new Set();
-
-            // 1. Завершенные задачи вчера
-            this.projectTasks.forEach(task => {
-                if (task.completed_at && new Date(task.completed_at).toDateString() === yesterday.toDateString()) {
-                    progress.push({
-                        type: 'completed_task',
-                        title: task.title,
-                        taskId: task.id,
-                        comments: this.getCommentsForDate(task.id, yesterday)
-                    });
-                    processedTasks.add(task.id);
-                }
-            });
-
-            // 2. Подзадачи, завершенные вчера (для незавершенных задач)
-            this.projectTasks.forEach(task => {
-                if (processedTasks.has(task.id)) return;
-
-                const subTasks = this.getSubTasks(task.id);
-                const yesterdaySubTasks = subTasks.filter(subTask => {
-                    if (!subTask.completed_at) return false;
-                    const completedDate = new Date(subTask.completed_at);
-                    return completedDate.toDateString() === yesterday.toDateString();
-                });
-
-                if (yesterdaySubTasks.length > 0) {
-                    progress.push({
-                        type: 'completed_subtasks',
-                        taskTitle: task.title,
-                        taskId: task.id,
-                        subTasks: yesterdaySubTasks,
-                        comments: this.getCommentsForDate(task.id, yesterday)
-                    });
-                }
-            });
-
-            return progress;
-        },
-
-        // Вспомогательные методы для дейлика
-        getCommentsForDate(taskId, date) {
-            const comments = this.getTaskComments(taskId);
-            return comments.filter(comment => {
-                const commentDate = new Date(comment.created_at);
-                return commentDate.toDateString() === date.toDateString();
-            });
-        },
-
-        getRecentComments(taskId, days = 2) {
-            const comments = this.getTaskComments(taskId);
-            const cutoffDate = new Date();
-            cutoffDate.setDate(cutoffDate.getDate() - days);
-
-            return comments.filter(comment => {
-                const commentDate = new Date(comment.created_at);
-                return commentDate >= cutoffDate;
-            });
-        },
-
-        // Вспомогательный метод для копирования с кастомным сообщением
         async copyToClipboardCustom(text, successMessage) {
             try {
                 await navigator.clipboard.writeText(text);
@@ -1482,12 +1277,10 @@ export default {
                 }
             } catch (error) {
                 console.error('Ошибка копирования в буфер:', error);
-                // Fallback для старых браузеров
                 this.showCopyFallbackWithMessage(text, successMessage);
             }
         },
 
-        // Обновленный метод showCopyFallback с поддержкой кастомного сообщения
         showCopyFallbackWithMessage(text, successMessage) {
             const textArea = document.createElement('textarea');
             textArea.value = text;
@@ -1510,55 +1303,7 @@ export default {
             }
         },
 
-        // Копирование отдельной задачи в буфер обмена
-        async copySingleTaskToClipboard(task) {
-            try {
-                const reportText = this.generateSingleTaskReport(task)
-                await navigator.clipboard.writeText(reportText)
-
-                if (this.$toast) {
-                    this.$toast.success('Отчет по задаче скопирован в буфер обмена!')
-                }
-            } catch (error) {
-                console.error('Ошибка копирования в буфер:', error)
-                this.showCopyFallback(this.generateSingleTaskReport(task))
-            }
-        },
-
-        // Альтернативный метод копирования (используется в copySingleTaskToClipboard)
-        showCopyFallback(text) {
-            // Создаем временный textarea для копирования
-            const textArea = document.createElement('textarea')
-            textArea.value = text
-            textArea.style.position = 'fixed'
-            textArea.style.left = '-999999px'
-            textArea.style.top = '-999999px'
-            document.body.appendChild(textArea)
-            textArea.focus()
-            textArea.select()
-
-            try {
-                // Пытаемся использовать современный Clipboard API
-                if (navigator.clipboard && navigator.clipboard.writeText) {
-                    navigator.clipboard.writeText(text).then(() => {
-                        if (this.$toast) {
-                            this.$toast.success('Отчет по задаче скопирован в буфер обмена!')
-                        }
-                    }).catch(() => {
-                        this.showManualCopyPrompt(text)
-                    })
-                } else {
-                    this.showManualCopyPrompt(text)
-                }
-            } catch (e) {
-                this.showManualCopyPrompt(text)
-            } finally {
-                document.body.removeChild(textArea)
-            }
-        },
-
         showManualCopyPrompt(text) {
-            // Показываем пользователю текст и просим скопировать вручную
             const shouldCopy = confirm('Не удалось автоматически скопировать текст. Нажмите OK, чтобы увидеть текст для ручного копирования.')
             if (shouldCopy) {
                 const textWindow = window.open('', '_blank')
@@ -1575,7 +1320,20 @@ export default {
             }
         },
 
-        // Генерация отчета для одной задачи (без финального сообщения)
+        async copySingleTaskToClipboard(task) {
+            try {
+                const reportText = this.generateSingleTaskReport(task)
+                await navigator.clipboard.writeText(reportText)
+
+                if (this.$toast) {
+                    this.$toast.success('Отчет по задаче скопирован в буфер обмена!')
+                }
+            } catch (error) {
+                console.error('Ошибка копирования в буфер:', error)
+                this.showCopyFallback(this.generateSingleTaskReport(task))
+            }
+        },
+
         generateSingleTaskReport(task) {
             const status = task.is_completed ? '✅ ВЫПОЛНЕНО' : '🟡 В РАБОТЕ'
             const priority = this.getPriorityLabel(task.priority)
@@ -1591,7 +1349,6 @@ export default {
             report += `${dueDate}\n`
             report += `Создана: ${this.formatDate(task.created_at)}\n\n`
 
-            // Подзадачи
             const subTasks = this.getSubTasks(task.id)
             if (subTasks.length > 0) {
                 const completedCount = this.getCompletedSubTasksCount(task.id)
@@ -1600,7 +1357,6 @@ export default {
                     const subStatus = subTask.is_completed ? '✅' : '⭕'
                     report += `  ${index + 1}. ${subStatus} ${subTask.title}\n`
 
-                    // Комментарии подзадачи
                     const subTaskComments = this.getSubTaskComments(subTask.id)
                     if (subTaskComments.length > 0) {
                         report += `    💬 Комментарии к подзадаче:\n`
@@ -1612,7 +1368,6 @@ export default {
                 report += '\n'
             }
 
-            // Комментарии
             const comments = this.getTaskComments(task.id)
             if (comments.length > 0) {
                 report += `💬 КОММЕНТАРИИ (${comments.length}):\n`
@@ -1624,7 +1379,6 @@ export default {
             return report
         },
 
-        // Генерация отчета по всем задачам
         generateTaskReport() {
             let report = `📊 ОТЧЕТ ПО ЗАДАЧАМ\n`
             report += `Проект: ${this.project.name}\n`
@@ -1648,7 +1402,6 @@ export default {
                 report += `${index + 1}. ${task.title}\n`
                 report += `   └─ Статус: ${status} | Приоритет: ${priority} ${dueDate}\n`
 
-                // Подзадачи
                 const subTasks = this.getSubTasks(task.id)
                 if (subTasks.length > 0) {
                     const completedCount = this.getCompletedSubTasksCount(task.id)
@@ -1657,7 +1410,6 @@ export default {
                         const subStatus = subTask.is_completed ? '✅' : '⭕'
                         report += `      ${subStatus} ${subTask.title}\n`
 
-                        // Комментарии подзадачи
                         const subTaskComments = this.getSubTaskComments(subTask.id)
                         if (subTaskComments.length > 0) {
                             report += `      💬 Комментарии к подзадаче:\n`
@@ -1668,7 +1420,6 @@ export default {
                     })
                 }
 
-                // Комментарии
                 const comments = this.getTaskComments(task.id)
                 if (comments.length > 0) {
                     report += `      💬 Комментарии:\n`
@@ -1716,11 +1467,6 @@ export default {
                     this.$toast.error('Не удалось скопировать отчет')
                 }
             }
-        },
-
-        formatDate(dateString) {
-            if (!dateString) return ''
-            return new Date(dateString).toLocaleDateString('ru-RU')
         }
     },
     async mounted() {
@@ -1730,17 +1476,20 @@ export default {
             await this.fetchTasks()
             this.project = this.projects.find(p => p.id === this.projectId) || {}
 
-            // Загружаем комментарии и подзадачи для всех задач
             for (const task of this.projectTasks) {
                 await this.fetchTaskComments(task.id)
                 await this.fetchSubTasks(task.id)
 
-                // Загружаем комментарии для всех подзадач
                 const subTasks = this.getSubTasks(task.id)
                 for (const subTask of subTasks) {
                     await this.fetchSubTaskComments(subTask.id)
                 }
             }
+
+            // Запускаем интервал для живого времени
+            this.timerInterval = setInterval(() => {
+                this.now = Date.now();
+            }, 1000);
 
         } catch (error) {
             console.error('Ошибка загрузки деталей проекта:', error)
@@ -1752,11 +1501,15 @@ export default {
         }
     },
     beforeUnmount() {
-
+        if (this.timerInterval) {
+            clearInterval(this.timerInterval);
+        }
     }
 }
 </script>
+
 <style scoped>
+/* Стили остаются без изменений (можно оставить как есть или дополнить новыми) */
 .project-detail {
     max-width: 900px;
     margin: 0 auto;
@@ -1798,7 +1551,6 @@ export default {
     margin: 0 auto;
 }
 
-/* Новые стили для редактирования названия проекта */
 .project-title-section {
     display: flex;
     align-items: center;
@@ -1857,7 +1609,52 @@ export default {
     min-width: 300px;
 }
 
-/* Стили для статистики проекта */
+/* Блок заработка проекта */
+.project-earnings {
+    display: flex;
+    justify-content: center;
+    gap: 3rem;
+    margin: 1rem 0;
+    padding: 1rem;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+}
+
+.earnings-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.earnings-item .label {
+    font-size: 1rem;
+    opacity: 0.9;
+    margin-bottom: 0.3rem;
+}
+
+.earnings-item .value {
+    font-size: 1.6rem;
+    font-weight: bold;
+    color: #ffd700;
+}
+
+.total-time {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.total-time .label {
+    font-size: 1.2rem;
+    margin-bottom: 0.5rem;
+    opacity: 0.9;
+}
+
+.total-time .time {
+    font-size: 2.4rem;
+    font-weight: bold;
+}
+
 .project-stats {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
@@ -1904,23 +1701,6 @@ export default {
     height: 100%;
     background: linear-gradient(90deg, #28a745, #20c997);
     transition: width 0.3s ease;
-}
-
-.total-time {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-}
-
-.total-time .label {
-    font-size: 1.2rem;
-    margin-bottom: 0.5rem;
-    opacity: 0.9;
-}
-
-.total-time .time {
-    font-size: 2.4rem;
-    font-weight: bold;
 }
 
 .back-btn {
@@ -2384,7 +2164,6 @@ export default {
     flex: 1;
 }
 
-/* Статистика */
 .tasks-stats {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -2409,7 +2188,6 @@ export default {
     font-size: 0.9rem;
 }
 
-/* Фильтры задач */
 .task-filters {
     display: flex;
     gap: 0.5rem;
@@ -2438,13 +2216,6 @@ export default {
 
 .filter-btn.active:hover {
     background: #0056b3;
-}
-
-/* Стили для задач в трекере задач */
-.task-item {
-    margin-bottom: 1.5rem;
-    transition: all 0.3s ease;
-    border-left: 4px solid #6c757d;
 }
 
 .task-item.priority-high {
@@ -2530,7 +2301,11 @@ export default {
     color: #6c757d;
 }
 
-/* Прогресс подзадач */
+.task-header-actions {
+    display: flex;
+    gap: 8px;
+}
+
 .subtasks-progress {
     margin: 1rem 0;
     display: flex;
@@ -2558,7 +2333,6 @@ export default {
     min-width: 100px;
 }
 
-/* Подзадачи */
 .subtasks-section {
     margin: 1rem 0;
     padding: 1rem;
@@ -2603,7 +2377,6 @@ export default {
     opacity: 1;
 }
 
-/* Комментарии подзадач */
 .subtask-comments {
     margin-top: 0.5rem;
     padding-left: 1rem;
@@ -2643,7 +2416,12 @@ export default {
     font-size: 14px;
 }
 
-/* Комментарии */
+.subtask-actions {
+    display: flex;
+    gap: 4px;
+    margin-left: auto;
+}
+
 .comments-section {
     margin: 1rem 0;
 }
@@ -2684,7 +2462,6 @@ export default {
     min-height: 60px;
 }
 
-/* Действия с задачей */
 .task-actions {
     display: flex;
     justify-content: flex-end;
@@ -2692,7 +2469,6 @@ export default {
     border-top: 1px solid #e9ecef;
 }
 
-/* Кнопки экспорта */
 .export-actions {
     display: flex;
     gap: 1rem;
@@ -2708,17 +2484,6 @@ export default {
     border: 1px solid #007bff;
     border-radius: 4px;
     font-size: 14px;
-}
-
-.subtask-actions {
-    display: flex;
-    gap: 4px;
-    margin-left: auto;
-}
-
-.task-header-actions {
-    display: flex;
-    gap: 8px;
 }
 
 /* Адаптивность */
@@ -2860,6 +2625,10 @@ export default {
         padding-left: 0.5rem;
     }
 
+    .project-earnings {
+        flex-direction: column;
+        gap: 1rem;
+    }
 }
 
 @media (max-width: 480px) {
@@ -2924,4 +2693,4 @@ export default {
         align-self: flex-end;
     }
 }
-</style>    
+</style>

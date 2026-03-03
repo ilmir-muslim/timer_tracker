@@ -8,6 +8,17 @@
             </div>
         </div>
 
+        <!-- Блок финансовой сводки -->
+        <div class="earnings-overview card" v-if="$store.state.earningsSummary">
+            <h3>💰 Финансы</h3>
+            <div class="earnings-row">
+                <span>Всего заработано:
+                    <strong>{{ formatMoney($store.state.earningsSummary.total_earned) }}</strong></span>
+                <span>В среднем в месяц:
+                    <strong>{{ formatMoney($store.state.earningsSummary.average_monthly) }}</strong></span>
+            </div>
+        </div>
+
         <!-- Форма создания проекта -->
         <div class="card">
             <h3>Создать новый проект</h3>
@@ -86,6 +97,9 @@ export default {
             if (!dateString) return 'Неизвестная дата'
             const date = new Date(dateString)
             return date.toLocaleDateString('ru-RU')
+        },
+        formatMoney(amount) {
+            return (amount || 0).toFixed(2) + ' ₽';
         }
     },
     async mounted() {
@@ -129,6 +143,37 @@ export default {
     color: rgba(255, 255, 255, 0.9);
     font-size: 1.3rem;
     margin: 0;
+}
+
+.earnings-overview {
+    margin-bottom: 2rem;
+    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+}
+
+.earnings-overview h3 {
+    margin-top: 0;
+    margin-bottom: 1rem;
+    color: #343a40;
+    text-align: center;
+}
+
+.earnings-row {
+    display: flex;
+    justify-content: space-around;
+    flex-wrap: wrap;
+    gap: 1rem;
+    font-size: 1.2rem;
+}
+
+.earnings-row span {
+    background: white;
+    padding: 0.5rem 1rem;
+    border-radius: 20px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.earnings-row strong {
+    color: #28a745;
 }
 
 .project-form {
@@ -276,6 +321,11 @@ export default {
 
     .header-content h2 {
         font-size: 2rem;
+    }
+
+    .earnings-row {
+        flex-direction: column;
+        align-items: center;
     }
 }
 </style>

@@ -14,9 +14,9 @@ export default createStore({
         taskComments: {},
         subTasks: {},
         subTaskComments: {},
-        // Новые состояния для daily сессии и статистики
         dailySession: null,
-        dailyStats: null
+        dailyStats: null,
+        earningsSummary: null
     },
     mutations: {
         SET_TOKEN(state, token) {
@@ -124,19 +124,23 @@ export default createStore({
                 );
             }
         },
-        // Мутации для daily сессии
         SET_DAILY_SESSION(state, session) {
             state.dailySession = session
         },
         SET_DAILY_STATS(state, stats) {
             state.dailyStats = stats
+        },
+        SET_EARNINGS_SUMMARY(state, summary) {
+            state.earningsSummary = summary
         }
     },
     actions: {
-        async login({ commit }, credentials) {
+        async login({ commit, dispatch }, credentials) {
             try {
                 const response = await axios.post(`${API_BASE_URL}/login`, credentials)
                 commit('SET_TOKEN', response.data.access_token)
+                await dispatch('fetchUser')
+                await dispatch('fetchEarningsSummary')
                 return response.data
             } catch (error) {
                 console.error('Ошибка входа:', error)
@@ -157,6 +161,24 @@ export default createStore({
             commit('SET_USER', null)
             commit('SET_DAILY_SESSION', null)
             commit('SET_DAILY_STATS', null)
+            commit('SET_EARNINGS_SUMMARY', null)
+        },
+        async fetchUser({ commit }) {
+            try {
+                const response = await axios.get(`${API_BASE_URL}/users/me`)
+                commit('SET_USER', response.data)
+            } catch (error) {
+                console.error('Ошибка загрузки пользователя:', error)
+            }
+        },
+        async updateDefaultRate({ dispatch }, rate) {
+            try {
+                await axios.patch(`${API_BASE_URL}/users/me/rate`, { default_hourly_rate: rate })
+                await dispatch('fetchUser')
+            } catch (error) {
+                console.error('Ошибка обновления ставки:', error)
+                throw error
+            }
         },
         async fetchProjects({ commit }) {
             try {
@@ -179,9 +201,7 @@ export default createStore({
         },
         async fetchTasks({ commit }) {
             try {
-                console.log('Загрузка задач из:', `${API_BASE_URL}/tasks-with-details/`)
                 const response = await axios.get(`${API_BASE_URL}/tasks-with-details/`)
-                console.log('Ответ задач:', response.data)
                 commit('SET_TASKS', response.data)
             } catch (error) {
                 console.error('Ошибка загрузки задач:', error)
@@ -368,7 +388,6 @@ export default createStore({
                 throw error
             }
         },
-        // Daily session actions
         async fetchCurrentDailySession({ commit }) {
             try {
                 const response = await axios.get(`${API_BASE_URL}/daily/current`)
@@ -383,6 +402,14 @@ export default createStore({
                 commit('SET_DAILY_STATS', response.data)
             } catch (error) {
                 console.error('Ошибка загрузки статистики:', error)
+            }
+        },
+        async fetchEarningsSummary({ commit }) {
+            try {
+                const response = await axios.get(`${API_BASE_URL}/earnings/summary`)
+                commit('SET_EARNINGS_SUMMARY', response.data)
+            } catch (error) {
+                console.error('Ошибка загрузки статистики заработка:', error)
             }
         }
     },
@@ -411,12 +438,14 @@ export default createStore({
         getSubTaskComments: (state) => (subTaskId) => {
             return state.subTaskComments[subTaskId] || []
         },
-        // Daily getters
         currentDailySeconds: (state) => {
             return state.dailySession?.total_time || 0
         },
         isDailyTimerRunning: (state) => {
             return state.dailySession?.is_timer_running || false
+        },
+        defaultHourlyRate: (state) => {
+            return state.user?.default_hourly_rate || 0
         }
     }
 })

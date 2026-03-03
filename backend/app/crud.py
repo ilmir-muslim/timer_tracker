@@ -39,11 +39,20 @@ def get_projects_by_owner(db: Session, owner_id: int, skip: int = 0, limit: int 
                 ).total_seconds()
                 total_time += current_session_time
         project.total_time = total_time
+        project.earned_amount = total_time * project.hourly_rate / 3600
     return projects
 
 
 def create_project(db: Session, project: schemas.ProjectCreate, owner_id: int):
-    db_project = models.Project(name=project.name, owner_id=owner_id)
+    user = db.query(models.User).filter(models.User.id == owner_id).first()
+    hourly_rate = project.hourly_rate
+    if hourly_rate is None:
+        hourly_rate = user.default_hourly_rate if user else 0.0
+    if hourly_rate is None:
+        hourly_rate = 0.0
+    db_project = models.Project(
+        name=project.name, owner_id=owner_id, hourly_rate=hourly_rate
+    )
     db.add(db_project)
     db.commit()
     db.refresh(db_project)
@@ -426,3 +435,37 @@ def check_any_task_running(db: Session, user_id: int) -> bool:
         .first()
         is not None
     )
+
+
+# ------------------------------------------------------------
+# Earnings
+# ------------------------------------------------------------
+def get_user_earnings_summary(db: Session, user_id: int):
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        return None
+
+    projects = db.query(models.Project).filter(models.Project.owner_id == user_id).all()
+    total_earned = 0.0
+    for project in projects:
+        total_time = 0
+        for task in project.tasks:
+            total_time += task.total_time or 0
+            if task.is_timer_running and task.last_start_time:
+                total_time += (datetime.now() - task.last_start_time).total_seconds()
+        total_earned += total_time * project.hourly_rate / 3600
+
+    now = datetime.now()
+    months_since = (now.year - user.created_at.year) * 12 + (
+        now.month - user.created_at.month
+    )
+    if months_since < 1:
+        months_since = 1
+
+    average_monthly = total_earned / months_since
+
+    return {
+        "total_earned": total_earned,
+        "months_since_registration": months_since,
+        "average_monthly": average_monthly,
+    }

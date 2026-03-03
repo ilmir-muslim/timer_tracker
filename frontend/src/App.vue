@@ -2,7 +2,13 @@
   <div id="app">
     <header class="app-header">
       <div class="container">
-        <!-- Заголовок (таймер убран, остался только заголовок) -->
+        <!-- Блок ставки слева -->
+        <div class="rate-display" v-if="$store.getters.isAuthenticated">
+          <span>💰 Ставка: {{ $store.getters.defaultHourlyRate }} ₽/час</span>
+          <button @click="openRateModal" class="btn-rate-edit">✏️</button>
+        </div>
+
+        <!-- Заголовок -->
         <div class="title-section">
           <h1>⏱️ Учёт времени</h1>
           <p>Эффективно отслеживайте время ваших проектов</p>
@@ -21,23 +27,35 @@
       </div>
     </header>
 
+    <!-- Модальное окно изменения ставки -->
+    <div v-if="showRateModal" class="modal-overlay" @click="closeRateModal">
+      <div class="modal-content" @click.stop>
+        <h3>Изменить ставку</h3>
+        <div class="form-group">
+          <label>Ставка (₽/час):</label>
+          <input v-model.number="newRate" type="number" min="0" step="0.01" class="form-control">
+        </div>
+        <div class="modal-actions">
+          <button @click="updateRate" class="btn btn-primary">Сохранить</button>
+          <button @click="closeRateModal" class="btn btn-secondary">Отмена</button>
+        </div>
+      </div>
+    </div>
+
     <div class="main-layout" v-if="$store.getters.isAuthenticated">
       <main class="app-main">
         <div class="container content-area">
-          <!-- Левая пустая колонка (как статистика) -->
+          <!-- Левая колонка со статистикой заработка -->
           <aside class="left-column">
-            <!-- Пока пусто, можно добавить что-то потом -->
-            <div class="empty-placeholder">
-              <!-- Здесь будет контент слева -->
-            </div>
+            <EarningsSummary />
           </aside>
 
           <!-- Центральная колонка с проектами -->
           <div class="content-column main-column">
-            <router-view /> <!-- "Мои проекты" будут здесь и по центру -->
+            <router-view />
           </div>
 
-          <!-- Правая колонка со статистикой -->
+          <!-- Правая колонка со статистикой работы -->
           <aside class="stats-column">
             <DailyStats />
           </aside>
@@ -61,23 +79,24 @@
 </template>
 
 <script>
-import { mapActions, mapState, mapGetters } from 'vuex'
+import { mapActions, mapGetters } from 'vuex'
 import DailyStats from './components/DailyStats.vue'
+import EarningsSummary from './components/EarningsSummary.vue'
 
 export default {
   name: 'App',
-  components: { DailyStats },
+  components: { DailyStats, EarningsSummary },
   data() {
     return {
-      fetchInterval: null  // интервал для обновления daily сессии (когда таймер запущен)
+      fetchInterval: null,
+      showRateModal: false,
+      newRate: 0
     }
   },
   computed: {
-    ...mapState(['tasks']),
-    ...mapGetters(['currentDailySeconds', 'isDailyTimerRunning'])
+    ...mapGetters(['isDailyTimerRunning', 'defaultHourlyRate'])
   },
   watch: {
-    // При изменении статуса таймера запускаем/останавливаем интервал обновления
     isDailyTimerRunning(newVal) {
       if (newVal) {
         this.startFetching()
@@ -87,14 +106,13 @@ export default {
     }
   },
   methods: {
-    ...mapActions(['logout', 'pauseTimer', 'fetchCurrentDailySession', 'fetchDailyStats']),
+    ...mapActions(['logout', 'pauseTimer', 'fetchCurrentDailySession', 'fetchDailyStats', 'updateDefaultRate']),
 
     async handleLogout() {
       await this.logout()
       this.$router.push('/login')
     },
 
-    // Запуск периодического обновления daily сессии (раз в секунду)
     startFetching() {
       if (this.fetchInterval) clearInterval(this.fetchInterval)
       this.fetchInterval = setInterval(() => {
@@ -134,15 +152,32 @@ export default {
           )
         })
       }
+    },
+
+    openRateModal() {
+      this.newRate = this.defaultHourlyRate
+      this.showRateModal = true
+    },
+
+    closeRateModal() {
+      this.showRateModal = false
+    },
+
+    async updateRate() {
+      try {
+        await this.updateDefaultRate(this.newRate)
+        this.$toast.success('Ставка обновлена')
+        this.closeRateModal()
+      } catch (error) {
+        this.$toast.error('Не удалось обновить ставку')
+      }
     }
   },
 
   mounted() {
-    // Загружаем начальное состояние
     this.fetchCurrentDailySession()
     this.fetchDailyStats(30)
 
-    // Если таймер уже запущен (например, после логина), запускаем интервал
     if (this.isDailyTimerRunning) {
       this.startFetching()
     }
@@ -187,6 +222,35 @@ body {
   padding: 1rem 0;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
   position: relative;
+}
+
+.rate-display {
+  position: absolute;
+  left: 20px;
+  top: 20px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(255, 255, 255, 0.2);
+  padding: 5px 15px;
+  border-radius: 30px;
+  color: white;
+  font-weight: 500;
+  font-size: 1rem;
+}
+
+.btn-rate-edit {
+  background: none;
+  border: none;
+  color: white;
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 0 5px;
+  transition: transform 0.2s;
+}
+
+.btn-rate-edit:hover {
+  transform: scale(1.1);
 }
 
 .title-section {
@@ -263,12 +327,9 @@ body {
   padding: 1rem;
 }
 
-
-
 .main-column {
   min-width: 0;
 }
-
 
 .content-column {
   flex: 1;
@@ -280,6 +341,74 @@ body {
   color: white;
   text-align: center;
   padding: 1rem 0;
+}
+
+/* Модальное окно */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: white;
+  padding: 2rem;
+  border-radius: 12px;
+  max-width: 500px;
+  width: 90%;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+}
+
+.modal-content h3 {
+  margin-bottom: 1.5rem;
+  color: #343a40;
+  font-size: 1.5rem;
+  text-align: center;
+}
+
+.modal-content .form-group {
+  margin-bottom: 1.5rem;
+}
+
+.modal-content label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: 500;
+  color: #495057;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  margin-top: 1.5rem;
+}
+
+.btn-primary {
+  background-color: #007bff;
+  color: white;
+}
+
+.btn-primary:hover {
+  background-color: #0056b3;
+}
+
+.btn-secondary {
+  background-color: #6c757d;
+  color: white;
+}
+
+.btn-secondary:hover {
+  background-color: #5a6268;
 }
 
 /* Адаптивность */
@@ -322,8 +451,10 @@ body {
     flex-wrap: wrap;
   }
 
-  .left-column .empty-placeholder {
-    min-height: 100px;
+  .rate-display {
+    position: static;
+    justify-content: center;
+    margin-bottom: 1rem;
   }
 }
 

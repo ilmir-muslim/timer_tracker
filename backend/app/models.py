@@ -15,6 +15,9 @@ class User(Base):
     created_at: Mapped[DateTime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+    default_hourly_rate: Mapped[float] = mapped_column(
+        Float, nullable=False, default=0.0
+    )
 
     projects: Mapped[list["Project"]] = relationship("Project", back_populates="owner")
     daily_sessions: Mapped[list["DailyWorkSession"]] = relationship(
@@ -33,6 +36,7 @@ class Project(Base):
     owner_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("users.id"), nullable=False
     )
+    hourly_rate: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
 
     tasks: Mapped[list["Task"]] = relationship("Task", back_populates="project")
     owner: Mapped["User"] = relationship("User", back_populates="projects")
