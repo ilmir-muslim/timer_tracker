@@ -25,9 +25,9 @@
             <div class="project-form">
                 <div class="input-wrapper">
                     <input v-model="newProjectName" placeholder="Введите название проекта"
-                        class="form-control project-input" @keyup.enter="createProject">
+                        class="form-control project-input" @keyup.enter="handleCreateProject">
                 </div>
-                <button @click="createProject" class="btn btn-primary add-project-btn"
+                <button @click="handleCreateProject" class="btn btn-primary add-project-btn"
                     :disabled="!newProjectName.trim()">
                     <span class="btn-icon">+</span> Добавить проект
                 </button>
@@ -70,7 +70,8 @@ export default {
     },
     methods: {
         ...mapActions(['createProject', 'fetchProjects']),
-        async createProject() {
+
+        async handleCreateProject() {
             if (this.newProjectName.trim()) {
                 try {
                     await this.createProject({ name: this.newProjectName })
@@ -86,6 +87,7 @@ export default {
                 }
             }
         },
+
         formatTime(seconds) {
             if (!seconds) return '0ч 0м 0с'
             const hours = Math.floor(seconds / 3600)
@@ -93,11 +95,13 @@ export default {
             const secs = Math.floor(seconds % 60)
             return `${hours}ч ${minutes}м ${secs}с`
         },
+
         formatDate(dateString) {
             if (!dateString) return 'Неизвестная дата'
             const date = new Date(dateString)
             return date.toLocaleDateString('ru-RU')
         },
+
         formatMoney(amount) {
             return (amount || 0).toFixed(2) + ' ₽';
         }
