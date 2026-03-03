@@ -21,13 +21,23 @@
       </div>
     </header>
 
-    <!-- Основной контент с двумя колонками (для авторизованных) -->
     <div class="main-layout" v-if="$store.getters.isAuthenticated">
       <main class="app-main">
         <div class="container content-area">
-          <div class="content-column">
-            <router-view />
+          <!-- Левая пустая колонка (как статистика) -->
+          <aside class="left-column">
+            <!-- Пока пусто, можно добавить что-то потом -->
+            <div class="empty-placeholder">
+              <!-- Здесь будет контент слева -->
+            </div>
+          </aside>
+
+          <!-- Центральная колонка с проектами -->
+          <div class="content-column main-column">
+            <router-view /> <!-- "Мои проекты" будут здесь и по центру -->
           </div>
+
+          <!-- Правая колонка со статистикой -->
           <aside class="stats-column">
             <DailyStats />
           </aside>
@@ -165,9 +175,10 @@ body {
 }
 
 .container {
-  max-width: 1400px;
-  margin: 0 auto;
-  padding: 0 20px;
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  padding: 0 30px;
 }
 
 .app-header {
@@ -230,23 +241,38 @@ body {
 
 .main-layout {
   min-height: calc(100vh - 200px);
+  display: flex;
+  width: 100%;
+}
+
+.app-main {
+  width: 100%;
 }
 
 .content-area {
-  display: flex;
+  display: grid;
+  grid-template-columns: 350px 1fr 350px;
   gap: 2rem;
   padding: 2rem 0;
+  width: 100%;
 }
+
+.left-column {
+  background-color: #f8f9fa;
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+
+
+.main-column {
+  min-width: 0;
+}
+
 
 .content-column {
   flex: 1;
   min-width: 0;
-  /* предотвращает переполнение */
-}
-
-.stats-column {
-  width: 350px;
-  flex-shrink: 0;
 }
 
 .app-footer {
@@ -257,12 +283,35 @@ body {
 }
 
 /* Адаптивность */
-@media (max-width: 1000px) {
+@media (max-width: 1200px) {
   .content-area {
-    flex-direction: column;
+    gap: 1rem;
+    grid-template-columns: 280px 1fr 280px;
+  }
+}
+
+@media (max-width: 1000px) {
+  .container {
+    padding: 0 20px;
+  }
+
+  .content-area {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  .left-column {
+    order: 1;
+    width: 100%;
+  }
+
+  .main-column {
+    order: 2;
+    width: 100%;
   }
 
   .stats-column {
+    order: 3;
     width: 100%;
   }
 
@@ -272,15 +321,23 @@ body {
     justify-content: center;
     flex-wrap: wrap;
   }
+
+  .left-column .empty-placeholder {
+    min-height: 100px;
+  }
 }
 
 @media (max-width: 600px) {
+  .container {
+    padding: 0 15px;
+  }
+
   .title-section h1 {
     font-size: 2rem;
   }
 }
 
-/* Остальные общие стили */
+/* Общие стили компонентов */
 .card {
   background: white;
   border-radius: 8px;
