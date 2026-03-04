@@ -442,7 +442,6 @@ export default {
             editMinutes: 0,
             editSeconds: 0,
             now: Date.now(), // для живого времени
-            timerTick: 0, // для принудительного обновления вычисляемых свойств
             activeTab: 'timer',
             newTaskPriority: 2,
             newTaskDueDate: '',
@@ -476,22 +475,18 @@ export default {
             return this.getTasksByProjectId(this.projectId)
         },
         tasksWithLiveTime() {
-            const tick = this.timerTick; // зависимость для принудительного обновления
-            console.log('tasksWithLiveTime recalc, tick:', tick, 'now:', this.now);
-            const result = this.projectTasks.map(task => {
+            // Зависимость от this.now и this.projectTasks обеспечивает пересчёт при изменении
+            return this.projectTasks.map(task => {
                 let total = task.total_time || 0;
                 if (task.is_timer_running && task.last_start_time) {
-                    const lastStart = new Date(task.last_start_time).getTime();
+                    const lastStart = this.parseUTCDate(task.last_start_time).getTime();
                     if (!isNaN(lastStart)) {
                         const elapsed = (this.now - lastStart) / 1000;
                         total += elapsed;
                     }
                 }
-                console.log('Task', task.id, 'total:', total, 'is_timer_running:', task.is_timer_running);
                 return { ...task, live_total_time: total };
             });
-            console.log('tasksWithLiveTime result:', result);
-            return result;
         },
         sortedTimerTasks() {
             return [...this.tasksWithLiveTime].sort((a, b) =>
@@ -645,6 +640,17 @@ export default {
 
         formatMoney(amount) {
             return (amount || 0).toFixed(2) + ' ₽';
+        },
+
+        // Парсит строку даты как UTC (если нет Z, добавляем Z)
+        parseUTCDate(dateString) {
+            if (!dateString) return new Date(NaN);
+            // Если строка уже заканчивается на Z, оставляем как есть
+            if (dateString.endsWith('Z')) {
+                return new Date(dateString);
+            }
+            // Иначе предполагаем, что это UTC и добавляем Z
+            return new Date(dateString + 'Z');
         },
 
         async startTaskTimer(taskId) {
@@ -1372,7 +1378,6 @@ export default {
             // Запускаем интервал для живого времени
             this.timerInterval = setInterval(() => {
                 this.now = Date.now();
-                this.timerTick++;
             }, 1000);
 
         } catch (error) {
