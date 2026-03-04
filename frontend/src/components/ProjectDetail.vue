@@ -39,7 +39,7 @@
                     </div>
                 </div>
 
-                <!-- Блок заработка проекта -->
+                <!-- Блок заработка проекта (живой) -->
                 <div class="project-earnings">
                     <div class="earnings-item">
                         <span class="label">Ставка:</span>
@@ -47,13 +47,13 @@
                     </div>
                     <div class="earnings-item">
                         <span class="label">Заработано:</span>
-                        <span class="value">{{ formatMoney(project.earned_amount) }}</span>
+                        <span class="value">{{ formatMoney(liveEarnedAmount) }}</span>
                     </div>
                 </div>
 
                 <div class="total-time">
                     <span class="label">Общее время проекта:</span>
-                    <span class="time">{{ formatTime(localTotalTime) }}</span>
+                    <span class="time">{{ formatTime(totalLiveTime) }}</span>
                 </div>
 
                 <!-- Обновленная статистика с учетом подзадач -->
@@ -94,7 +94,7 @@
             </button>
         </div>
 
-        <!-- Трекер времени (существующий функционал) -->
+        <!-- Трекер времени (с живым временем) -->
         <div v-if="activeTab === 'timer'" class="timer-tab">
             <div v-if="loading" class="loading">Загрузка...</div>
 
@@ -165,7 +165,7 @@
             </div>
         </div>
 
-        <!-- Трекер задач (новый функционал) -->
+        <!-- Трекер задач (полный функционал) -->
         <div v-else class="tasks-tab">
             <div class="card task-input-card">
                 <h3>Добавить новую задачу</h3>
@@ -437,35 +437,25 @@ export default {
             newTaskTitle: '',
             project: {},
             loading: true,
-            localTotalTime: 0,
             editingTask: null,
             editHours: 0,
             editMinutes: 0,
             editSeconds: 0,
             now: Date.now(), // для живого времени
-
-            // Новые данные для трекера задач
-            activeTab: 'timer', // 'timer' или 'tasks'
+            timerTick: 0, // для принудительного обновления вычисляемых свойств
+            activeTab: 'timer',
             newTaskPriority: 2,
             newTaskDueDate: '',
             newSubTaskTitles: {},
             newCommentContents: {},
             newSubTaskCommentContents: {},
-            taskView: 'all', // 'all', 'active', 'completed'
-
-            // Редактирование подзадач
+            taskView: 'all',
             editingSubTasks: {},
             editingSubTaskTitles: {},
-
-            // Редактирование задачи
             editingTaskModal: false,
             editingTaskData: null,
-
-            // Редактирование проекта
             editingProjectName: '',
             isEditingProject: false,
-
-            // Интервал для обновления времени
             timerInterval: null
         }
     },
@@ -485,24 +475,29 @@ export default {
         projectTasks() {
             return this.getTasksByProjectId(this.projectId)
         },
-        // Задачи с живым временем для трекера времени
         tasksWithLiveTime() {
-            return this.projectTasks.map(task => {
+            const tick = this.timerTick; // зависимость для принудительного обновления
+            console.log('tasksWithLiveTime recalc, tick:', tick, 'now:', this.now);
+            const result = this.projectTasks.map(task => {
                 let total = task.total_time || 0;
                 if (task.is_timer_running && task.last_start_time) {
-                    const elapsed = (this.now - new Date(task.last_start_time).getTime()) / 1000;
-                    total += elapsed;
+                    const lastStart = new Date(task.last_start_time).getTime();
+                    if (!isNaN(lastStart)) {
+                        const elapsed = (this.now - lastStart) / 1000;
+                        total += elapsed;
+                    }
                 }
+                console.log('Task', task.id, 'total:', total, 'is_timer_running:', task.is_timer_running);
                 return { ...task, live_total_time: total };
             });
+            console.log('tasksWithLiveTime result:', result);
+            return result;
         },
-        // Сортированные задачи для трекера времени (новые сверху)
         sortedTimerTasks() {
             return [...this.tasksWithLiveTime].sort((a, b) =>
                 new Date(b.created_at) - new Date(a.created_at)
             );
         },
-        // Сортированные задачи для трекера задач (с учётом фильтра)
         taskTrackerTasks() {
             return this.projectTasks.filter(task => {
                 if (this.taskView === 'active') return !task.is_completed
@@ -512,15 +507,12 @@ export default {
         },
         sortedTasks() {
             return [...this.taskTrackerTasks].sort((a, b) => {
-                // Сначала незавершенные, затем завершенные
                 if (a.is_completed !== b.is_completed) {
                     return a.is_completed ? 1 : -1
                 }
-                // Затем по убыванию даты создания (новые сверху)
                 return new Date(b.created_at) - new Date(a.created_at)
             })
         },
-
         totalSubTasks() {
             let total = 0
             this.projectTasks.forEach(task => {
@@ -528,7 +520,6 @@ export default {
             })
             return total
         },
-
         completedSubTasks() {
             let completed = 0
             this.projectTasks.forEach(task => {
@@ -536,13 +527,11 @@ export default {
             })
             return completed
         },
-
         overallCompletionRate() {
             const totalItems = this.totalTasks + this.totalSubTasks
             const completedItems = this.completedTasks + this.completedSubTasks
             return totalItems > 0 ? Math.round((completedItems / totalItems) * 100) : 0
         },
-
         activeTimersCount() {
             return this.projectTasks.filter(task => task.is_timer_running).length
         },
@@ -558,19 +547,16 @@ export default {
         completedTasks() {
             return this.projectTasks.filter(task => task.is_completed).length
         },
-    },
-    watch: {
-        projectTasks: {
-            handler(tasks) {
-                this.localTotalTime = tasks.reduce((total, task) => total + (task.total_time || 0), 0)
-
-                const projectIndex = this.projects.findIndex(p => p.id === this.projectId)
-                if (projectIndex !== -1) {
-                    this.$store.state.projects[projectIndex].total_time = this.localTotalTime
-                }
-            },
-            deep: true,
-            immediate: true
+        // Новое вычисляемое свойство для общего времени проекта (живое)
+        totalLiveTime() {
+            return this.tasksWithLiveTime.reduce(
+                (total, task) => total + (task.live_total_time || 0),
+                0
+            );
+        },
+        // Живой заработок на основе текущего времени
+        liveEarnedAmount() {
+            return (this.totalLiveTime * (this.project.hourly_rate || 0)) / 3600;
         }
     },
     methods: {
@@ -597,36 +583,28 @@ export default {
             'deleteSubTaskComment'
         ]),
 
-        // Редактирование названия проекта
+        // Редактирование проекта
         startEditingProjectName() {
             this.editingProjectName = this.project.name
             this.isEditingProject = true
         },
-
         async saveProjectName() {
             if (this.editingProjectName.trim() && this.editingProjectName !== this.project.name) {
                 try {
                     await this.updateProject({
                         projectId: this.projectId,
-                        projectData: {
-                            name: this.editingProjectName.trim()
-                        }
+                        projectData: { name: this.editingProjectName.trim() }
                     })
-                    await this.fetchProjects() // Обновляем список проектов
+                    await this.fetchProjects()
                     this.project = this.projects.find(p => p.id === this.projectId) || {}
-                    if (this.$toast) {
-                        this.$toast.success('Название проекта успешно обновлено!')
-                    }
+                    if (this.$toast) this.$toast.success('Название проекта обновлено!')
                 } catch (error) {
                     console.error('Ошибка обновления проекта:', error)
-                    if (this.$toast) {
-                        this.$toast.error('Не удалось обновить название проекта')
-                    }
+                    if (this.$toast) this.$toast.error('Не удалось обновить название проекта')
                 }
             }
             this.cancelEditingProjectName()
         },
-
         cancelEditingProjectName() {
             this.editingProjectName = ''
             this.isEditingProject = false
@@ -639,31 +617,24 @@ export default {
                         title: this.newTaskTitle,
                         project_id: this.projectId
                     }
-
-                    // Если мы в режиме трекера задач, добавляем дополнительные поля
                     if (this.activeTab === 'tasks') {
                         taskData.priority = parseInt(this.newTaskPriority)
                         if (this.newTaskDueDate) {
                             taskData.due_date = this.formatDateForBackend(this.newTaskDueDate)
                         }
                     }
-
                     await this.createTask(taskData)
                     this.newTaskTitle = ''
                     this.newTaskDueDate = ''
                     this.newTaskPriority = 2
-
-                    if (this.$toast) {
-                        this.$toast.success('Задача успешно добавлена!')
-                    }
+                    if (this.$toast) this.$toast.success('Задача успешно добавлена!')
                 } catch (error) {
                     console.error('Ошибка создания задачи:', error)
-                    if (this.$toast) {
-                        this.$toast.error('Не удалось создать задачу')
-                    }
+                    if (this.$toast) this.$toast.error('Не удалось создать задачу')
                 }
             }
         },
+
         formatTime(seconds) {
             if (!seconds) return '0ч 0м 0с'
             const hours = Math.floor(seconds / 3600)
@@ -671,59 +642,50 @@ export default {
             const secs = Math.floor(seconds % 60)
             return `${hours}ч ${minutes}м ${secs}с`
         },
+
         formatMoney(amount) {
             return (amount || 0).toFixed(2) + ' ₽';
         },
+
         async startTaskTimer(taskId) {
             try {
                 await this.startTimer(taskId)
-                if (this.$toast) {
-                    this.$toast.success('Таймер запущен')
-                }
+                if (this.$toast) this.$toast.success('Таймер запущен')
             } catch (error) {
                 console.error('Ошибка запуска таймера:', error)
-                if (this.$toast) {
-                    this.$toast.error('Не удалось запустить таймер')
-                }
+                if (this.$toast) this.$toast.error('Не удалось запустить таймер')
             }
         },
+
         async pauseTaskTimer(taskId) {
             try {
                 await this.pauseTimer(taskId)
-                if (this.$toast) {
-                    this.$toast.info('Таймер на паузе')
-                }
+                if (this.$toast) this.$toast.info('Таймер на паузе')
             } catch (error) {
                 console.error('Ошибка остановки таймера:', error)
-                if (this.$toast) {
-                    this.$toast.error('Не удалось остановить таймер')
-                }
+                if (this.$toast) this.$toast.error('Не удалось остановить таймер')
             }
         },
+
         async stopAllTimers() {
             if (this.activeTimersCount === 0) return
-
             if (confirm(`Остановить все активные таймеры (${this.activeTimersCount})?`)) {
                 try {
                     const activeTasks = this.projectTasks.filter(task => task.is_timer_running)
                     for (const task of activeTasks) {
                         await this.pauseTimer(task.id)
                     }
-
-                    if (this.$toast) {
-                        this.$toast.success(`Остановлено ${this.activeTimersCount} таймеров`)
-                    }
+                    if (this.$toast) this.$toast.success(`Остановлено ${this.activeTimersCount} таймеров`)
                 } catch (error) {
                     console.error('Ошибка остановки таймеров:', error)
-                    if (this.$toast) {
-                        this.$toast.error('Не удалось остановить таймеры')
-                    }
+                    if (this.$toast) this.$toast.error('Не удалось остановить таймеры')
                 }
             }
         },
+
         generateReportText() {
             let report = `Проект: ${this.project.name}\n`
-            report += `Общее время: ${this.formatTime(this.localTotalTime)}\n`
+            report += `Общее время: ${this.formatTime(this.totalLiveTime)}\n`  // используем живое время
             report += `Сгенерировано: ${new Date().toLocaleString('ru-RU')}\n\n`
             report += 'Задачи:\n'
             report += '='.repeat(50) + '\n\n'
@@ -737,6 +699,7 @@ export default {
 
             return report
         },
+
         exportToTxt() {
             const reportText = this.generateReportText()
             const blob = new Blob([reportText], { type: 'text/plain' })
@@ -753,52 +716,43 @@ export default {
                 this.$toast.success('Отчет успешно экспортирован!')
             }
         },
+
         async copyToClipboard() {
             try {
                 const reportText = this.generateReportText()
                 await navigator.clipboard.writeText(reportText)
-
-                if (this.$toast) {
-                    this.$toast.success('Отчет скопирован в буфер обмена!')
-                }
+                if (this.$toast) this.$toast.success('Отчет скопирован в буфер обмена!')
             } catch (error) {
                 console.error('Ошибка копирования в буфер:', error)
-                if (this.$toast) {
-                    this.$toast.error('Не удалось скопировать в буфер обмена')
-                }
+                if (this.$toast) this.$toast.error('Не удалось скопировать в буфер обмена')
             }
         },
+
         async deleteProjectHandler() {
             if (confirm('Вы уверены, что хотите удалить проект? Все задачи будут удалены.')) {
                 try {
                     await this.deleteProject(this.projectId)
-                    if (this.$toast) {
-                        this.$toast.success('Проект удален')
-                    }
+                    if (this.$toast) this.$toast.success('Проект удален')
                     this.$router.push('/')
                 } catch (error) {
                     console.error('Ошибка удаления проекта:', error)
-                    if (this.$toast) {
-                        this.$toast.error('Не удалось удалить проект')
-                    }
+                    if (this.$toast) this.$toast.error('Не удалось удалить проект')
                 }
             }
         },
+
         async deleteTaskHandler(taskId) {
             if (confirm('Вы уверены, что хотите удалить задачу?')) {
                 try {
                     await this.deleteTask(taskId)
-                    if (this.$toast) {
-                        this.$toast.success('Задача удалена')
-                    }
+                    if (this.$toast) this.$toast.success('Задача удалена')
                 } catch (error) {
                     console.error('Ошибка удаления задачи:', error)
-                    if (this.$toast) {
-                        this.$toast.error('Не удалось удалить задачу')
-                    }
+                    if (this.$toast) this.$toast.error('Не удалось удалить задачу')
                 }
             }
         },
+
         openEditModal(task) {
             this.editingTask = { ...task }
             const totalSeconds = task.total_time || 0
@@ -806,15 +760,16 @@ export default {
             this.editMinutes = Math.floor((totalSeconds % 3600) / 60)
             this.editSeconds = Math.floor(totalSeconds % 60)
         },
+
         closeEditModal() {
             this.editingTask = null
             this.editHours = 0
             this.editMinutes = 0
             this.editSeconds = 0
         },
+
         async saveTaskEdit() {
             if (!this.editingTask) return
-
             try {
                 await this.updateTask({
                     taskId: this.editingTask.id,
@@ -823,18 +778,12 @@ export default {
                         total_time: this.totalEditSeconds
                     }
                 })
-
-                if (this.$toast) {
-                    this.$toast.success('Задача успешно обновлена!')
-                }
-
+                if (this.$toast) this.$toast.success('Задача успешно обновлена!')
                 this.closeEditModal()
                 await this.fetchTasks()
             } catch (error) {
                 console.error('Ошибка обновления задачи:', error)
-                if (this.$toast) {
-                    this.$toast.error('Не удалось обновить задачу')
-                }
+                if (this.$toast) this.$toast.error('Не удалось обновить задачу')
             }
         },
 
@@ -851,32 +800,23 @@ export default {
         async toggleTaskCompletion(taskId, isCompleted) {
             try {
                 await this.updateTaskStatus({ taskId, isCompleted })
-                if (this.$toast) {
-                    this.$toast.success(isCompleted ? 'Задача выполнена!' : 'Задача возобновлена')
-                }
+                if (this.$toast) this.$toast.success(isCompleted ? 'Задача выполнена!' : 'Задача возобновлена')
             } catch (error) {
                 console.error('Ошибка обновления статуса задачи:', error)
-                if (this.$toast) {
-                    this.$toast.error('Не удалось обновить статус задачи')
-                }
+                if (this.$toast) this.$toast.error('Не удалось обновить статус задачи')
             }
         },
 
         async addSubTask(taskId) {
             const title = this.newSubTaskTitles[taskId]?.trim()
             if (!title) return
-
             try {
                 await this.createSubTask({ taskId, title })
                 this.newSubTaskTitles[taskId] = ''
-                if (this.$toast) {
-                    this.$toast.success('Подзадача добавлена')
-                }
+                if (this.$toast) this.$toast.success('Подзадача добавлена')
             } catch (error) {
                 console.error('Ошибка создания подзадачи:', error)
-                if (this.$toast) {
-                    this.$toast.error('Не удалось добавить подзадачу')
-                }
+                if (this.$toast) this.$toast.error('Не удалось добавить подзадачу')
             }
         },
 
@@ -889,9 +829,7 @@ export default {
                 })
             } catch (error) {
                 console.error('Ошибка обновления подзадачи:', error)
-                if (this.$toast) {
-                    this.$toast.error('Не удалось обновить подзадачу')
-                }
+                if (this.$toast) this.$toast.error('Не удалось обновить подзадачу')
             }
         },
 
@@ -899,14 +837,10 @@ export default {
             if (confirm('Удалить подзадачу?')) {
                 try {
                     await this.deleteSubTask({ taskId, subTaskId })
-                    if (this.$toast) {
-                        this.$toast.success('Подзадача удалена')
-                    }
+                    if (this.$toast) this.$toast.success('Подзадача удалена')
                 } catch (error) {
                     console.error('Ошибка удаления подзадачи:', error)
-                    if (this.$toast) {
-                        this.$toast.error('Не удалось удалить подзадачу')
-                    }
+                    if (this.$toast) this.$toast.error('Не удалось удалить подзадачу')
                 }
             }
         },
@@ -928,30 +862,22 @@ export default {
                 this.cancelSubTaskEdit(subTaskId)
                 return
             }
-
             try {
                 await this.updateSubTask({
                     taskId,
                     subTaskId,
                     subTaskData: { title }
                 })
-
                 const newEditingSubTasks = { ...this.editingSubTasks }
                 delete newEditingSubTasks[subTaskId]
                 this.editingSubTasks = newEditingSubTasks
-
                 const newEditingSubTaskTitles = { ...this.editingSubTaskTitles }
                 delete newEditingSubTaskTitles[subTaskId]
                 this.editingSubTaskTitles = newEditingSubTaskTitles
-
-                if (this.$toast) {
-                    this.$toast.success('Подзадача обновлена')
-                }
+                if (this.$toast) this.$toast.success('Подзадача обновлена')
             } catch (error) {
                 console.error('Ошибка обновления подзадачи:', error)
-                if (this.$toast) {
-                    this.$toast.error('Не удалось обновить подзадачу')
-                }
+                if (this.$toast) this.$toast.error('Не удалось обновить подзадачу')
             }
         },
 
@@ -959,7 +885,6 @@ export default {
             const newEditingSubTasks = { ...this.editingSubTasks }
             delete newEditingSubTasks[subTaskId]
             this.editingSubTasks = newEditingSubTasks
-
             const newEditingSubTaskTitles = { ...this.editingSubTaskTitles }
             delete newEditingSubTaskTitles[subTaskId]
             this.editingSubTaskTitles = newEditingSubTaskTitles
@@ -968,18 +893,13 @@ export default {
         async addComment(taskId) {
             const content = this.newCommentContents[taskId]?.trim()
             if (!content) return
-
             try {
                 await this.createTaskComment({ taskId, content })
                 this.newCommentContents[taskId] = ''
-                if (this.$toast) {
-                    this.$toast.success('Комментарий добавлен')
-                }
+                if (this.$toast) this.$toast.success('Комментарий добавлен')
             } catch (error) {
                 console.error('Ошибка создания комментария:', error)
-                if (this.$toast) {
-                    this.$toast.error('Не удалось добавить комментарий')
-                }
+                if (this.$toast) this.$toast.error('Не удалось добавить комментарий')
             }
         },
 
@@ -987,14 +907,10 @@ export default {
             if (confirm('Удалить комментарий?')) {
                 try {
                     await this.deleteTaskComment({ taskId, commentId })
-                    if (this.$toast) {
-                        this.$toast.success('Комментарий удален')
-                    }
+                    if (this.$toast) this.$toast.success('Комментарий удален')
                 } catch (error) {
                     console.error('Ошибка удаления комментария:', error)
-                    if (this.$toast) {
-                        this.$toast.error('Не удалось удалить комментарий')
-                    }
+                    if (this.$toast) this.$toast.error('Не удалось удалить комментарий')
                 }
             }
         },
@@ -1002,18 +918,13 @@ export default {
         async addSubTaskComment(subTaskId) {
             const content = this.newSubTaskCommentContents[subTaskId]?.trim();
             if (!content) return;
-
             try {
                 await this.createSubTaskComment({ subTaskId, content });
                 this.newSubTaskCommentContents[subTaskId] = '';
-                if (this.$toast) {
-                    this.$toast.success('Комментарий к подзадаче добавлен');
-                }
+                if (this.$toast) this.$toast.success('Комментарий к подзадаче добавлен');
             } catch (error) {
                 console.error('Ошибка создания комментария подзадачи:', error);
-                if (this.$toast) {
-                    this.$toast.error('Не удалось добавить комментарий к подзадаче');
-                }
+                if (this.$toast) this.$toast.error('Не удалось добавить комментарий к подзадаче');
             }
         },
 
@@ -1021,14 +932,10 @@ export default {
             if (confirm('Удалить комментарий к подзадаче?')) {
                 try {
                     await this.deleteSubTaskComment({ subTaskId, commentId });
-                    if (this.$toast) {
-                        this.$toast.success('Комментарий к подзадаче удален');
-                    }
+                    if (this.$toast) this.$toast.success('Комментарий к подзадаче удален');
                 } catch (error) {
                     console.error('Ошибка удаления комментария подзадачи:', error);
-                    if (this.$toast) {
-                        this.$toast.error('Не удалось удалить комментарий к подзадаче');
-                    }
+                    if (this.$toast) this.$toast.error('Не удалось удалить комментарий к подзадаче');
                 }
             }
         },
@@ -1055,35 +962,26 @@ export default {
 
         async saveTaskEditModal() {
             if (!this.editingTaskData) return
-
             try {
                 const taskData = {
                     title: this.editingTaskData.title,
                     priority: parseInt(this.editingTaskData.priority)
                 }
-
                 if (this.editingTaskData.due_date) {
                     taskData.due_date = this.formatDateForBackend(this.editingTaskData.due_date)
                 } else {
                     taskData.due_date = null
                 }
-
                 await this.updateTask({
                     taskId: this.editingTaskData.id,
                     taskData
                 })
-
-                if (this.$toast) {
-                    this.$toast.success('Задача успешно обновлена!')
-                }
-
+                if (this.$toast) this.$toast.success('Задача успешно обновлена!')
                 this.closeEditTaskModal()
                 await this.fetchTasks()
             } catch (error) {
                 console.error('Ошибка обновления задачи:', error)
-                if (this.$toast) {
-                    this.$toast.error('Не удалось обновить задачу')
-                }
+                if (this.$toast) this.$toast.error('Не удалось обновить задачу')
             }
         },
 
@@ -1262,19 +1160,15 @@ export default {
         isDueToday(dueDate) {
             const today = new Date();
             today.setHours(0, 0, 0, 0);
-
             const due = new Date(dueDate);
             due.setHours(0, 0, 0, 0);
-
             return due.getTime() === today.getTime();
         },
 
         async copyToClipboardCustom(text, successMessage) {
             try {
                 await navigator.clipboard.writeText(text);
-                if (this.$toast) {
-                    this.$toast.success(successMessage);
-                }
+                if (this.$toast) this.$toast.success(successMessage);
             } catch (error) {
                 console.error('Ошибка копирования в буфер:', error);
                 this.showCopyFallbackWithMessage(text, successMessage);
@@ -1293,9 +1187,7 @@ export default {
 
             try {
                 document.execCommand('copy');
-                if (this.$toast) {
-                    this.$toast.success(successMessage);
-                }
+                if (this.$toast) this.$toast.success(successMessage);
             } catch (e) {
                 this.showManualCopyPrompt(text);
             } finally {
@@ -1324,10 +1216,7 @@ export default {
             try {
                 const reportText = this.generateSingleTaskReport(task)
                 await navigator.clipboard.writeText(reportText)
-
-                if (this.$toast) {
-                    this.$toast.success('Отчет по задаче скопирован в буфер обмена!')
-                }
+                if (this.$toast) this.$toast.success('Отчет по задаче скопирован в буфер обмена!')
             } catch (error) {
                 console.error('Ошибка копирования в буфер:', error)
                 this.showCopyFallback(this.generateSingleTaskReport(task))
@@ -1457,15 +1346,10 @@ export default {
             try {
                 const reportText = this.generateTaskReport()
                 await navigator.clipboard.writeText(reportText)
-
-                if (this.$toast) {
-                    this.$toast.success('Отчет по задачам скопирован в буфер обмена!')
-                }
+                if (this.$toast) this.$toast.success('Отчет по задачам скопирован в буфер обмена!')
             } catch (error) {
                 console.error('Ошибка копирования в буфер:', error)
-                if (this.$toast) {
-                    this.$toast.error('Не удалось скопировать отчет')
-                }
+                if (this.$toast) this.$toast.error('Не удалось скопировать отчет')
             }
         }
     },
@@ -1479,7 +1363,6 @@ export default {
             for (const task of this.projectTasks) {
                 await this.fetchTaskComments(task.id)
                 await this.fetchSubTasks(task.id)
-
                 const subTasks = this.getSubTasks(task.id)
                 for (const subTask of subTasks) {
                     await this.fetchSubTaskComments(subTask.id)
@@ -1489,6 +1372,7 @@ export default {
             // Запускаем интервал для живого времени
             this.timerInterval = setInterval(() => {
                 this.now = Date.now();
+                this.timerTick++;
             }, 1000);
 
         } catch (error) {
@@ -1509,7 +1393,6 @@ export default {
 </script>
 
 <style scoped>
-/* Стили остаются без изменений (можно оставить как есть или дополнить новыми) */
 .project-detail {
     max-width: 900px;
     margin: 0 auto;

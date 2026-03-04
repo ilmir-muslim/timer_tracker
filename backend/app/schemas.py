@@ -110,6 +110,7 @@ class Task(TaskBase):
     created_at: datetime
     total_time: Optional[float] = 0.0
     is_timer_running: Optional[bool] = False
+    last_start_time: Optional[datetime] = None
     is_completed: Optional[bool] = False
     completed_at: Optional[datetime] = None
     priority: Optional[int] = 1

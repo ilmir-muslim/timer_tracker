@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 from jose import JWTError, jwt
 # from passlib.context import CryptContext
 
-SECRET_KEY = "simple-secret-key"  # Для продакшена нужно использовать безопасный ключ
+SECRET_KEY = "simple-secret-key-for-development-change-in-production"  # Для продакшена нужно использовать безопасный ключ
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 24 * 60  # 24 часа
 
