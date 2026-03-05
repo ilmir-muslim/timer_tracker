@@ -77,7 +77,6 @@
     </footer>
   </div>
 </template>
-
 <script>
 import { mapActions, mapGetters } from 'vuex'
 import DailyStats from './components/DailyStats.vue'
@@ -106,7 +105,15 @@ export default {
     }
   },
   methods: {
-    ...mapActions(['logout', 'pauseTimer', 'fetchCurrentDailySession', 'fetchDailyStats', 'updateDefaultRate']),
+    ...mapActions([
+      'logout',
+      'pauseTimer',
+      'fetchCurrentDailySession',
+      'fetchDailyStats',
+      'updateDefaultRate',
+      'fetchEarningsSummary',
+      'fetchUser'                     // ← ADDED
+    ]),
 
     async handleLogout() {
       await this.logout()
@@ -166,10 +173,11 @@ export default {
     async updateRate() {
       try {
         await this.updateDefaultRate(this.newRate)
+        await this.fetchEarningsSummary()
         if (this.$toast) {
           this.$toast.success('Ставка обновлена')
         } else {
-          alert('Ставка успешно обновлена')
+          console.log('Ставка обновлена')
         }
         this.closeRateModal()
       } catch (error) {
@@ -184,6 +192,12 @@ export default {
   },
 
   mounted() {
+    // Загружаем данные пользователя и статистику, если есть токен
+    if (this.$store.getters.isAuthenticated) {
+      this.fetchUser()                // ← ADDED – загружает пользователя (включая ставку)
+      this.fetchEarningsSummary()      // ← ADDED – обновляет статистику заработка
+    }
+
     this.fetchCurrentDailySession()
     this.fetchDailyStats(30)
 
@@ -202,8 +216,6 @@ export default {
   }
 }
 </script>
-
-
 <style>
 * {
   box-sizing: border-box;

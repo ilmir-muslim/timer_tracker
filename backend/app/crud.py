@@ -453,7 +453,9 @@ def get_user_earnings_summary(db: Session, user_id: int):
             total_time += task.total_time or 0
             if task.is_timer_running and task.last_start_time:
                 total_time += (datetime.now() - task.last_start_time).total_seconds()
-        total_earned += total_time * project.hourly_rate / 3600
+        # Используем ставку проекта, если она > 0, иначе ставку пользователя
+        rate = project.hourly_rate if project.hourly_rate > 0 else user.default_hourly_rate
+        total_earned += total_time * rate / 3600
 
     now = datetime.now()
     months_since = (now.year - user.created_at.year) * 12 + (
